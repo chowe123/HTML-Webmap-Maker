@@ -38,7 +38,16 @@ const BASEMAPS = {
 let currentBasemap = 'none';
 let tileLayer = null;
 
-const map = L.map('map').setView([43.7, -79.4], 10);
+const map = L.map('map', { crs: L.CRS.EPSG3857 }).setView([43.7, -79.4], 10);
+
+map.on('click', function() { if (hasSelection()) clearSelection(); });
+map.on('contextmenu', function(e) {
+  if (e.originalEvent) e.originalEvent.preventDefault();
+  var items = [
+    { action: 'clear-selection', icon: '✕', label: 'Clear Selection', handler: function() { clearSelection(); } }
+  ];
+  showCtxMenu(items, e.originalEvent.clientX, e.originalEvent.clientY);
+});
 
 function setBasemap(name) {
   const config = BASEMAPS[name];
@@ -154,6 +163,89 @@ function parsePointStrokeWidth(value) {
   const n = parseFloat(value);
   if (isNaN(n) || n < 0) return 0;
   return Math.min(20, n);
+}
+
+var selectedFeatures = {}; // { [layerId]: Set<featureIndex> }
+
+function getSelectedSet(layerId) {
+  if (!selectedFeatures[layerId]) selectedFeatures[layerId] = new Set();
+  return selectedFeatures[layerId];
+}
+
+function hasSelection() {
+  for (var k in selectedFeatures) {
+    if (selectedFeatures[k].size > 0) return true;
+  }
+  return false;
+}
+
+function getSelectedCount(layerId) {
+  var s = selectedFeatures[layerId];
+  return s ? s.size : 0;
+}
+
+function getAllSelected() {
+  var result = [];
+  for (var k in selectedFeatures) {
+    selectedFeatures[k].forEach(function(idx) {
+      result.push({ layerId: k, featureIndex: idx });
+    });
+  }
+  return result;
+}
+
+function selectOne(layerId, featureIndex) {
+  var old = getAllSelected();
+  selectedFeatures = {};
+  getSelectedSet(layerId).add(featureIndex);
+  var rebuildLayers = {};
+  old.forEach(function(item) { rebuildLayers[item.layerId] = true; });
+  rebuildLayers[layerId] = true;
+  for (var lid in rebuildLayers) {
+    var l = layerStore.find(function(x) { return x.id === lid; });
+    if (l) rebuildLeafletLayer(l, { renderUI: false });
+  }
+  if (typeof renderAttrTable === 'function') renderAttrTable();
+}
+
+function toggleSelection(layerId, featureIndex) {
+  var s = getSelectedSet(layerId);
+  if (s.has(featureIndex)) {
+    s.delete(featureIndex);
+    if (s.size === 0) delete selectedFeatures[layerId];
+  } else {
+    s.add(featureIndex);
+  }
+  redrawFeature(layerId, featureIndex);
+  if (typeof renderAttrTable === 'function') renderAttrTable();
+}
+
+function clearSelectionInternal(redraw) {
+  var all = getAllSelected();
+  selectedFeatures = {};
+  if (redraw !== false) {
+    var touched = {};
+    all.forEach(function(item) { touched[item.layerId] = true; });
+    for (var lid in touched) {
+      var l = layerStore.find(function(x) { return x.id === lid; });
+      if (l) rebuildLeafletLayer(l, { renderUI: false });
+    }
+    if (typeof renderAttrTable === 'function') renderAttrTable();
+  }
+}
+
+function clearSelection() { clearSelectionInternal(true); }
+
+function isFeatureSelected(layerId, featureIndex) {
+  var s = selectedFeatures[layerId];
+  return s ? s.has(featureIndex) : false;
+}
+
+function redrawFeature(layerId, featureIndex) {
+  // Rebuild the entire leaflet layer so all children get correct style
+  var layer = layerStore.find(function(l) { return l.id === layerId; });
+  if (!layer) return;
+  rebuildLeafletLayer(layer, { renderUI: false });
 }
 
 function isPointFeature(feature) {
@@ -567,6 +659,7 @@ document.getElementById('fileInput').addEventListener('change', handleFile);
 function handleFile(e) {
   const file = e.target.files[0];
   if (!file) return;
+  e.target.value = '';
 
   const isZip = file.name.endsWith('.zip');
 
@@ -629,16 +722,20 @@ function getFeatureFillColor(layerObj, feature) {
 }
 
 function getFeatureStyle(layerObj, feature) {
-  const fillColor = getFeatureFillColor(layerObj, feature);
-  const layerOpacity = layerObj.opacity ?? 0.4;
-  const style = {
+  var isSelected = layerObj && feature && (function() {
+    var idx = layerObj.geojson.features ? layerObj.geojson.features.indexOf(feature) : -1;
+    return idx >= 0 && isFeatureSelected(layerObj.id, idx);
+  })();
+  var fillColor = getFeatureFillColor(layerObj, feature);
+  var layerOpacity = layerObj.opacity ?? 0.4;
+  var style = {
     color: layerObj.strokeColor ?? fillColor,
-    fillColor,
-    fillOpacity: layerOpacity,
-    opacity: layerOpacity,
-    weight: layerObj.weight
+    fillColor: fillColor,
+    fillOpacity: isSelected ? 1 : (layerObj.noFill ? 0 : layerOpacity),
+    opacity: isSelected ? 1 : layerOpacity,
+    weight: isSelected ? Math.max(layerObj.weight || 1, 3) : layerObj.weight
   };
-  if (layerObj.noFill) style.fillOpacity = 0;
+  if (isSelected) style.color = '#00e5ff';
   return style;
 }
 
@@ -686,6 +783,11 @@ function buildPointSymbolHtml(symbolType, fillColor, strokeColor, size, strokeWi
 }
 
 function createPointMarker(feature, latlng, layerObj) {
+  const isSelected = layerObj && feature &&
+    (function() {
+      const idx = layerObj.geojson.features ? layerObj.geojson.features.indexOf(feature) : -1;
+      return idx >= 0 && isFeatureSelected(layerObj.id, idx);
+    })();
   const fillColor = getFeatureFillColor(layerObj, feature);
   const markerOpacity = layerObj.opacity ?? 0.4;
 
@@ -710,27 +812,33 @@ function createPointMarker(feature, latlng, layerObj) {
 
   const dim = Math.max(8, size * 2);
 
+  const selClass = isSelected ? ' point-selected' : '';
+  const extraSize = isSelected ? 4 : 0;
+
   if (symbolType === 'custom' && customUrl) {
     return L.marker(latlng, {
       icon: L.icon({
         iconUrl: customUrl,
-        iconSize: [dim, dim],
-        iconAnchor: [size, size],
-        popupAnchor: [0, -size],
-        className: 'gis-custom-point-icon'
+        iconSize: [dim + extraSize, dim + extraSize],
+        iconAnchor: [size + extraSize / 2, size + extraSize / 2],
+        popupAnchor: [0, -size - extraSize / 2],
+        className: 'gis-custom-point-icon' + selClass
       }),
-      opacity: markerOpacity
+      opacity: isSelected ? Math.min(markerOpacity + 0.2, 1) : markerOpacity
     });
   }
 
+  const selStroke = isSelected ? '#00e5ff' : strokeColor;
+  const selSw = isSelected ? Math.max(strokeWidth, 3) : strokeWidth;
+
   return L.marker(latlng, {
     icon: L.divIcon({
-      className: 'gis-point-symbol-icon',
-      html: buildPointSymbolHtml(symbolType, fillColor, strokeColor, size, strokeWidth),
-      iconSize: [dim, dim],
-      iconAnchor: [size, size]
+      className: 'gis-point-symbol-icon' + selClass,
+      html: buildPointSymbolHtml(symbolType, fillColor, selStroke, size + extraSize, selSw),
+      iconSize: [dim + extraSize, dim + extraSize],
+      iconAnchor: [size + extraSize / 2, size + extraSize / 2]
     }),
-    opacity: markerOpacity
+    opacity: isSelected ? Math.min(markerOpacity + 0.2, 1) : markerOpacity
   });
 }
 
@@ -816,12 +924,86 @@ function refreshLayerPopups(layer) {
   });
 }
 
+function evaluateFilterExpression(expr, props) {
+  try {
+    // Inject property names as individual variables so bare field names work
+    var keys = Object.keys(props).filter(function(k) { return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k); });
+    var values = keys.map(function(k) { return props[k]; });
+    return new Function('p', ...keys, 'return (' + expr + ')').call(null, props, ...values);
+  } catch(e) {
+    return false;
+  }
+}
+
+function evaluateExpression(expr, props) {
+  try {
+    var keys = Object.keys(props).filter(function(k) { return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k); });
+    var values = keys.map(function(k) { return props[k]; });
+    return new Function('p', ...keys, 'return (' + expr + ')').call(null, props, ...values);
+  } catch(e) {
+    return '';
+  }
+}
+
+function getFilteredFeatures(layer) {
+  var all = layer.geojson.features || (layer.geojson.type === 'Feature' ? [layer.geojson] : []);
+  if (!layer.filterEnabled) return all;
+
+  // Advanced mode: JavaScript expression
+  if (layer.filterMode === 'advanced' && layer.filterExpression) {
+    return all.filter(function(f) {
+      return evaluateFilterExpression(layer.filterExpression, f.properties || {});
+    });
+  }
+
+  // Simple mode: field/op/value
+  if (!layer.filterField) return all;
+  var op = layer.filterOp || 'equals';
+  var val = layer.filterValue || '';
+  var field = layer.filterField;
+  return all.filter(function(f) {
+    var propVal = f.properties ? f.properties[field] : undefined;
+    if (propVal === undefined || propVal === null) propVal = '';
+    var strVal = String(propVal);
+    switch (op) {
+      case 'equals': return strVal === val;
+      case 'not_equals': return strVal !== val;
+      case 'contains': return strVal.indexOf(val) !== -1;
+      case 'not_contains': return strVal.indexOf(val) === -1;
+      case 'greater': return parseFloat(strVal) > parseFloat(val);
+      case 'less': return parseFloat(strVal) < parseFloat(val);
+      case 'greater_eq': return parseFloat(strVal) >= parseFloat(val);
+      case 'less_eq': return parseFloat(strVal) <= parseFloat(val);
+      case 'is_empty': return strVal === '';
+      case 'not_empty': return strVal !== '';
+      default: return true;
+    }
+  });
+}
+
 function createGeoJsonLayer(layerObj) {
+  var filteredFeatures = layerObj.filterEnabled ? getFilteredFeatures(layerObj) : null;
+  var geoData = filteredFeatures
+    ? { type: 'FeatureCollection', features: filteredFeatures }
+    : layerObj.geojson;
   const options = {
     style: (feature) => (isPointFeature(feature) ? {} : getFeatureStyle(layerObj, feature)),
     onEachFeature: (feature, l) => {
       bindFeaturePopup(feature, l, layerObj);
       bindFeatureLabel(feature, l, layerObj);
+      l.on('click', function(e) {
+        L.DomEvent.stopPropagation(e);
+        var src = filteredFeatures || layerObj.geojson.features || [];
+        var idx = src.indexOf(feature);
+        if (idx < 0 && layerObj.geojson.features) idx = layerObj.geojson.features.indexOf(feature);
+        if (idx >= 0) {
+          if (e.originalEvent && e.originalEvent.ctrlKey) {
+            toggleSelection(layerObj.id, idx);
+          } else {
+            selectOne(layerObj.id, idx);
+          }
+        }
+      });
     }
   };
 
@@ -829,7 +1011,7 @@ function createGeoJsonLayer(layerObj) {
     options.pointToLayer = (feature, latlng) => createPointMarker(feature, latlng, layerObj);
   }
 
-  return L.geoJSON(layerObj.geojson, options);
+  return L.geoJSON(geoData, options);
 }
 
 function bindFeatureLabel(feature, leafletLayer, layerObj) {
@@ -944,7 +1126,7 @@ function createLayer({
   pointStrokeColor = null,
   pointStrokeWidth = 2,
   customSymbolUrl = null,
-  popupEnabled = true,
+  popupEnabled = false,
   popupTitle = '',
   popupFields = null,
   popupTemplate = '',
@@ -962,13 +1144,25 @@ function createLayer({
   intervals = [],
   symbologyExpanded = true,
   settingsExpanded = true,
+
   labelField = '',
   labelEnabled = false,
   labelFont = 'Arial',
   labelSize = 12,
   labelColor = '#ffffff',
   labelStrokeColor = '#000000',
-  labelStrokeWidth = 2
+  filterEnabled = false,
+  filterMode = 'simple',
+  filterField = '',
+  filterOp = 'equals',
+  filterValue = '',
+  filterExpression = '',
+  labelStrokeWidth = 2,
+  colorRamp = '',
+  colorRampReversed = false,
+  customCategoryLabels = {},
+  hiddenCatKeys = [],
+  showLegend = true
 }) {
   let layerId = id;
   if (layerId) {
@@ -1022,7 +1216,18 @@ function createLayer({
     labelSize,
     labelColor,
     labelStrokeColor,
-    labelStrokeWidth
+    labelStrokeWidth,
+    colorRamp: colorRamp || '',
+    colorRampReversed: colorRampReversed || false,
+    customCategoryLabels: { ...customCategoryLabels },
+    hiddenCatKeys: hiddenCatKeys ? [...hiddenCatKeys] : [],
+    showLegend: showLegend !== false,
+    filterEnabled: filterEnabled !== false,
+    filterMode: filterMode === 'advanced' ? 'advanced' : 'simple',
+    filterField: filterField || '',
+    filterOp: filterOp || 'equals',
+    filterValue: filterValue || '',
+    filterExpression: filterExpression || ''
   };
   migrateLegacyBreaks(layerObj);
   ensureCategoryOrder(layerObj);
@@ -1213,9 +1418,906 @@ const SYMBOL_SHAPES = [
   { id: 'custom', label: 'Custom Image' },
 ];
 
+function deleteSelectedFeatures(layer) {
+  var selSet = selectedFeatures[layer.id];
+  if (!selSet || selSet.size === 0) return;
+  var indices = [];
+  selSet.forEach(function(idx) { indices.push(idx); });
+  indices.sort(function(a, b) { return b - a; }); // descending to splice without index shift
+  var features = layer.geojson.features;
+  if (!features) return;
+  indices.forEach(function(idx) { features.splice(idx, 1); });
+  // Rebuild fields
+  layer.fields = extractFields(layer.geojson);
+  // Clear selection and rebuild
+  selectedFeatures = {};
+  rebuildLeafletLayer(layer);
+  renderUI();
+  if (typeof renderAttrTable === 'function') renderAttrTable();
+}
+
 function closeCategorySymbolEditor() {
   const overlay = document.getElementById('sym-editor-overlay');
   if (overlay) { overlay.remove(); renderUI(); }
+}
+
+// =========================
+// ATTRIBUTE TABLE COLUMN OPERATIONS
+// =========================
+
+function addColumnToLayer(layer) {
+  var name = prompt('Enter new column name:');
+  if (!name || !name.trim()) return;
+  name = name.trim();
+  if (layer.fields.indexOf(name) !== -1) {
+    alert('A column named "' + name + '" already exists.');
+    return;
+  }
+  var defaultVal = prompt('Enter default value (blank for empty):');
+  var features = layer.geojson.features || (layer.geojson.type === 'Feature' ? [layer.geojson] : []);
+  features.forEach(function(f) {
+    if (!f.properties) f.properties = {};
+    f.properties[name] = defaultVal || '';
+  });
+  layer.fields = extractFields(layer.geojson);
+  if (typeof renderAttrTable === 'function') renderAttrTable();
+}
+
+function renameColumn(layer, oldName) {
+  var newName = prompt('Rename "' + oldName + '" to:', oldName);
+  if (!newName || !newName.trim() || newName.trim() === oldName) return;
+  newName = newName.trim();
+  if (layer.fields.indexOf(newName) !== -1 && newName !== oldName) {
+    alert('A column named "' + newName + '" already exists.');
+    return;
+  }
+  var features = layer.geojson.features || (layer.geojson.type === 'Feature' ? [layer.geojson] : []);
+  features.forEach(function(f) {
+    if (f.properties && oldName in f.properties) {
+      f.properties[newName] = f.properties[oldName];
+      delete f.properties[oldName];
+    }
+  });
+  layer.fields = extractFields(layer.geojson);
+  if (typeof renderAttrTable === 'function') renderAttrTable();
+}
+
+function deleteColumn(layer, columnName) {
+  if (!confirm('Delete column "' + columnName + '"? This will remove the data for all features. This cannot be undone.')) return;
+  var features = layer.geojson.features || (layer.geojson.type === 'Feature' ? [layer.geojson] : []);
+  features.forEach(function(f) {
+    if (f.properties) delete f.properties[columnName];
+  });
+  layer.fields = extractFields(layer.geojson);
+  rebuildLeafletLayer(layer, { renderUI: false });
+  if (typeof renderAttrTable === 'function') renderAttrTable();
+}
+
+function openCalculateColumn(layer, targetField) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;';
+
+  var fieldOpts = '';
+  (layer.fields || []).forEach(function(f) {
+    fieldOpts += '<option value="' + escapeHtml(f) + '" ' + (f === targetField ? 'selected' : '') + '>' + escapeHtml(f) + '</option>';
+  });
+
+  overlay.innerHTML = [
+    '<div style="background:var(--bg-sidebar);border:1px solid var(--border-color);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:480px;display:flex;flex-direction:column;">',
+      '<div style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);flex-shrink:0;">',
+        '<h3 style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1;">Calculate Column: ' + escapeHtml(layer.name) + '</h3>',
+        '<button class="calc-close" style="background:rgba(255,255,255,0.04);border:1px solid var(--border-color);color:var(--text-muted);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">&times;</button>',
+      '</div>',
+      '<div style="padding:16px 20px;overflow-y:auto;">',
+        '<div style="margin-bottom:12px;">',
+          '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Target column</label>',
+          '<select class="calc-target-field" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">' + (fieldOpts || '<option value="">No fields</option>') + '</select>',
+        '</div>',
+        '<div style="margin-bottom:6px;">',
+          '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Fields</label>',
+          '<div class="calc-field-pills" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">',
+            (layer.fields || []).map(function(f) {
+              var safe = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(f) ? 'p.' + f : 'p[' + JSON.stringify(f) + ']';
+              return '<span data-insert="' + escapeHtml(safe) + '" style="display:inline-block;padding:3px 8px;background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-size:11px;font-family:monospace;cursor:pointer;white-space:nowrap;">' + escapeHtml(f) + '</span>';
+            }).join('') || '<span style="font-size:10px;color:var(--text-muted);">No fields available</span>',
+          '</div>',
+        '</div>',
+        '<div style="margin-bottom:8px;">',
+          '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">JavaScript expression</label>',
+          '<textarea class="calc-expression" rows="5" placeholder="e.g. Number(p.ACRES) * 2" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:&#39;Courier New&#39;,monospace;outline:none;resize:vertical;box-sizing:border-box;"></textarea>',
+        '</div>',
+        '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-bottom:4px;">Use <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;">p</code> for the feature properties object. Click a field above to insert. Result is converted to string.</div>',
+        '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;">',
+          'Examples:',
+          '<div style="margin-top:4px;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;white-space:pre-wrap;">Number(p.ACRES) * 2<br/>p.ZONING + \' - \' + p.AREA<br/>p.STATUS === \'Active\' ? \'Yes\' : \'No\'<br/>typeof p.YEAR === \'undefined\' ? 0 : Number(p.YEAR)</div>',
+        '</div>',
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">',
+          '<button type="button" class="calc-apply-btn" style="padding:7px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-md);font-size:12px;font-weight:600;cursor:pointer;">Calculate</button>',
+          '<button type="button" class="calc-cancel-btn" style="padding:7px 20px;background:rgba(255,255,255,0.06);color:var(--text-secondary);border:1px solid var(--border-color);border-radius:var(--radius-md);font-size:12px;cursor:pointer;">Cancel</button>',
+        '</div>',
+      '</div>',
+    '</div>'
+  ].join('');
+
+  // Field pill insert
+  overlay.querySelectorAll('.calc-field-pills span[data-insert]').forEach(function(pill) {
+    pill.addEventListener('click', function() {
+      var ta = overlay.querySelector('.calc-expression');
+      if (!ta) return;
+      var insert = pill.dataset.insert;
+      var start = ta.selectionStart, end = ta.selectionEnd;
+      ta.value = ta.value.substring(0, start) + insert + ta.value.substring(end);
+      ta.selectionStart = ta.selectionEnd = start + insert.length;
+      ta.focus();
+    });
+  });
+
+  overlay.querySelector('.calc-close').addEventListener('click', function() { overlay.remove(); });
+  overlay.querySelector('.calc-cancel-btn').addEventListener('click', function() { overlay.remove(); });
+  overlay.querySelector('.calc-apply-btn').addEventListener('click', function() {
+    var target = overlay.querySelector('.calc-target-field').value;
+    var expr = overlay.querySelector('.calc-expression').value;
+    overlay.remove();
+    if (!target || !expr) return;
+    doCalculateColumn(layer, target, expr);
+  });
+  overlay.addEventListener('mousedown', function(e) { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+function doCalculateColumn(layer, targetField, expression) {
+  var features = layer.geojson.features || (layer.geojson.type === 'Feature' ? [layer.geojson] : []);
+  var hasTarget = layer.fields.indexOf(targetField) !== -1;
+  features.forEach(function(f) {
+    if (!f.properties) f.properties = {};
+    try {
+      var result = evaluateExpression(expression, f.properties);
+      f.properties[targetField] = result !== undefined && result !== null ? String(result) : '';
+    } catch(e) {
+      f.properties[targetField] = '';
+    }
+  });
+  if (!hasTarget) layer.fields = extractFields(layer.geojson);
+  rebuildLeafletLayer(layer, { renderUI: false });
+  if (typeof renderAttrTable === 'function') renderAttrTable();
+}
+
+var _attrTableLayer = null;
+var _attrTableFilterMode = 'all';
+
+function toggleAttrTable() {
+  const panel = document.getElementById('attr-table-panel');
+  if (!panel) return;
+  panel.classList.toggle('expanded');
+  if (!panel.classList.contains('expanded')) {
+    _attrTableLayer = null;
+  }
+  setTimeout(() => { if (typeof map !== 'undefined' && map) map.invalidateSize(); }, 50);
+}
+
+function renderAttrTable() {
+  const layer = _attrTableLayer;
+  if (!layer) return;
+  populateAttrTable(layer);
+}
+
+function setAttrTableFilter(mode) {
+  _attrTableFilterMode = mode;
+  if (_attrTableLayer) renderAttrTable();
+}
+
+function populateAttrTable(layer) {
+  _attrTableLayer = layer;
+  var panel = document.getElementById('attr-table-panel');
+  if (!panel) return;
+  panel.classList.add('expanded');
+
+  var allFeatures = layer.geojson.features || (layer.geojson.type === 'Feature' ? [layer.geojson] : []);
+  var filteredSet = null;
+  if (layer.filterEnabled && (layer.filterMode === 'advanced' ? layer.filterExpression : layer.filterField)) {
+    filteredSet = {};
+    getFilteredFeatures(layer).forEach(function(f) {
+      filteredSet[allFeatures.indexOf(f)] = true;
+    });
+  }
+  var fields = layer.fields;
+  var totalCount = filteredSet ? Object.keys(filteredSet).length : allFeatures.length;
+  var selSet = selectedFeatures[layer.id];
+  var selCount = selSet ? selSet.size : 0;
+
+  var displayFeatures, displayIndices;
+  if (_attrTableFilterMode === 'selected' && selCount > 0) {
+    displayFeatures = [];
+    displayIndices = [];
+    selSet.forEach(function(idx) {
+      if (filteredSet && !filteredSet[idx]) return;
+      displayIndices.push(idx);
+      displayFeatures.push(allFeatures[idx]);
+    });
+  } else {
+    displayFeatures = [];
+    displayIndices = [];
+    for (var i = 0; i < allFeatures.length; i++) {
+      if (filteredSet && !filteredSet[i]) continue;
+      displayIndices.push(i);
+      displayFeatures.push(allFeatures[i]);
+    }
+  }
+
+  // Filter bar
+  var filterBar = '<div class="attr-table-filter-bar" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid var(--border-color);flex-shrink:0;">';
+  filterBar += '<span style="font-size:10px;color:var(--text-muted);flex:1;">' + totalCount + ' feature' + (totalCount === 1 ? '' : 's');
+  if (selCount > 0) {
+    filterBar += ' <span style="color:var(--accent);">(' + selCount + ' selected)</span>';
+  }
+  filterBar += '</span>';
+  filterBar += '<button class="attr-filter-btn" data-mode="all" style="font-size:10px;padding:3px 10px;border-radius:4px;border:1px solid var(--border-color);background:' + (_attrTableFilterMode === 'all' ? 'var(--accent)' : 'transparent') + ';color:' + (_attrTableFilterMode === 'all' ? '#fff' : 'var(--text-muted)') + ';cursor:pointer;">Show all</button>';
+  var selDisabled = selCount === 0;
+  filterBar += '<button class="attr-filter-btn" data-mode="selected" style="font-size:10px;padding:3px 10px;border-radius:4px;border:1px solid var(--border-color);background:' + (_attrTableFilterMode === 'selected' ? 'var(--accent)' : 'transparent') + ';color:' + (_attrTableFilterMode === 'selected' ? '#fff' : 'var(--text-muted)') + ';cursor:pointer;' + (selDisabled ? 'opacity:0.4;' : '') + '" ' + (selDisabled ? 'disabled' : '') + '>Selected</button>';
+  if (selCount > 0) {
+    filterBar += '<button class="attr-clear-btn" style="font-size:10px;padding:3px 10px;border-radius:4px;border:1px solid var(--border-color);background:transparent;color:var(--text-muted);cursor:pointer;">Clear</button>';
+  }
+  filterBar += '<button class="attr-add-col-btn" title="Add column" style="font-size:14px;padding:1px 8px;border-radius:4px;border:1px solid var(--border-color);background:transparent;color:var(--text-muted);cursor:pointer;line-height:1.4;">+</button>';
+  filterBar += '</div>';
+
+  var html = filterBar + '<table><thead><tr><th class="id-col">#</th>';
+  for (var fi = 0; fi < fields.length; fi++) { html += '<th data-field="' + escapeHtml(fields[fi]) + '">' + escapeHtml(fields[fi]) + '</th>'; }
+  html += '</tr></thead><tbody>';
+
+  for (var di = 0; di < displayFeatures.length; di++) {
+    var feature = displayFeatures[di];
+    var idx = displayIndices[di];
+    var props = feature.properties || {};
+    var isSel = selSet && selSet.has(idx);
+    html += '<tr class="attr-row' + (isSel ? ' attr-row-selected' : '') + '" data-fi="' + idx + '" style="cursor:pointer;">';
+    html += '<td class="id-col">' + (idx + 1) + '</td>';
+    for (var fi2 = 0; fi2 < fields.length; fi2++) {
+      var val = props[fields[fi2]] !== undefined && props[fields[fi2]] !== null ? String(props[fields[fi2]]) : '';
+      html += '<td><input class="cell-input" type="text" value="' + escapeHtml(val) + '" data-fi="' + idx + '" data-field="' + escapeHtml(fields[fi2]) + '" /></td>';
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+
+  panel.querySelector('.attr-table-body').innerHTML = html;
+  panel.querySelector('.attr-table-layer-name').textContent = layer.name;
+  panel.querySelector('.feature-count').textContent = totalCount + ' feature' + (totalCount === 1 ? '' : 's');
+
+  setTimeout(function() { if (typeof map !== 'undefined' && map) map.invalidateSize(); }, 60);
+
+  // Wire filter buttons
+  panel.querySelectorAll('.attr-filter-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { setAttrTableFilter(btn.dataset.mode); });
+  });
+
+  // Wire clear button
+  var clearBtn = panel.querySelector('.attr-clear-btn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() { clearSelection(); });
+  }
+
+  // Wire row click for selection (Ctrl+click toggles, regular click selects one)
+  panel.querySelectorAll('.attr-row').forEach(function(row) {
+    row.addEventListener('click', function(e) {
+      var fi = parseInt(this.dataset.fi, 10);
+      if (e.ctrlKey) {
+        toggleSelection(layer.id, fi);
+      } else {
+        selectOne(layer.id, fi);
+      }
+    });
+  });
+
+  // Wire right-click context menu on attr table
+  var tableBody = panel.querySelector('.attr-table-body');
+  if (tableBody) {
+    tableBody.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      var selCount = getSelectedCount(layer.id);
+      var items = [];
+      if (selCount > 0) {
+        items.push({ action: 'delete-selected', icon: '🗑', label: 'Delete Selected (' + selCount + ')', handler: function() { deleteSelectedFeatures(layer); } });
+        items.push({ separator: true });
+      }
+      items.push({ action: 'clear-selection', icon: '✕', label: 'Clear Selection', handler: function() { clearSelection(); } });
+      showCtxMenu(items, e.clientX, e.clientY);
+    });
+  }
+
+  // Wire cell edits
+  panel.querySelectorAll('.cell-input').forEach(function(inp) {
+    inp.addEventListener('change', function() {
+      var fi = parseInt(this.dataset.fi, 10);
+      var field = this.dataset.field;
+      var raw = this.value;
+      var feature = allFeatures[fi];
+      if (!feature) return;
+      if (feature.properties) {
+        var prev = feature.properties[field];
+        feature.properties[field] = raw;
+        if (String(prev) !== String(raw)) {
+          rebuildLeafletLayer(layer, { renderUI: false });
+        }
+      }
+    });
+  });
+
+  // Column header context menu
+  panel.querySelectorAll('thead th[data-field]').forEach(function(th) {
+    th.style.cursor = 'context-menu';
+    th.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var fieldName = th.dataset.field;
+      var items = [
+        { action: 'rename-col', icon: '✎', label: 'Rename Column', handler: function() { renameColumn(layer, fieldName); } },
+        { action: 'delete-col', icon: '🗑', label: 'Delete Column', handler: function() { deleteColumn(layer, fieldName); } },
+        { separator: true },
+        { action: 'calc-col', icon: '∑', label: 'Calculate Column', handler: function() { openCalculateColumn(layer, fieldName); } }
+      ];
+      showCtxMenu(items, e.clientX, e.clientY);
+    });
+  });
+
+  // Add column button
+  var addColBtn = panel.querySelector('.attr-add-col-btn');
+  if (addColBtn) {
+    addColBtn.addEventListener('click', function() { addColumnToLayer(layer); });
+  }
+}
+
+function closeCtxMenu() {
+  const menu = document.getElementById('ctxMenu');
+  if (menu) menu.style.display = 'none';
+}
+
+function showCtxMenu(items, x, y) {
+  closeCtxMenu();
+  const menu = document.getElementById('ctxMenu');
+  if (!menu) return;
+  menu.innerHTML = items.map(function(item) {
+    if (item.separator) return '<div class="ctx-separator"></div>';
+    return '<div class="ctx-item" data-action="' + item.action + '"><span class="ctx-icon">' + item.icon + '</span> ' + item.label + '</div>';
+  }).join('');
+  menu.style.display = 'block';
+  menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 10) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 10) + 'px';
+  menu.querySelectorAll('.ctx-item').forEach(function(el) {
+    el.addEventListener('click', function() {
+      closeCtxMenu();
+      var action = el.dataset.action;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].action === action && items[i].handler) {
+          items[i].handler();
+          return;
+        }
+      }
+    });
+  });
+}
+
+function showLayerContextMenu(e, layer) {
+  var items = [
+    { action: 'rename', icon: '✎', label: 'Rename', handler: function() { startLayerRename(layer); } },
+    { action: 'attr-table', icon: '⊞', label: 'Attribute Table', handler: function() { populateAttrTable(layer); } },
+    { separator: true },
+    { action: 'filter-data', icon: '🔍', label: 'Filter Data', handler: function() { openFilterEditor(layer); } },
+    { action: 'select-by-attr', icon: '☐', label: 'Select by Attribute', handler: function() { openSelectByAttribute(layer); } },
+    { action: 'popup-settings', icon: '💬', label: 'Popup Settings', handler: function() { openPopupSettings(layer); } },
+    { action: 'label-settings', icon: 'Aa', label: 'Label Settings', handler: function() { openLabelEditor(layer); } },
+    { separator: true },
+    { action: 'export-geojson', icon: '⬇', label: 'Export to GeoJSON', handler: function() { exportLayerGeoJSON(layer); } },
+    { separator: true },
+    { action: 'clear-selection', icon: '✕', label: 'Clear Selection', handler: function() { clearSelection(); } }
+  ];
+  showCtxMenu(items, e.clientX, e.clientY);
+}
+
+function startLayerRename(layer) {
+  const layersDiv = document.getElementById('layers');
+  const nameSpan = layersDiv.querySelector(`.layer-header[data-layer-id="${layer.id}"] .layer-name-display`);
+  if (!nameSpan) return;
+  const currentName = nameSpan.textContent;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'layer-name-input';
+  input.value = currentName;
+  nameSpan.replaceWith(input);
+  input.focus();
+  input.select();
+
+  function finish(confirmed) {
+    const newName = confirmed ? input.value.trim() : currentName;
+    if (newName && newName !== currentName) {
+      renameLayer(layer.id, newName);
+    }
+    const span = document.createElement('span');
+    span.className = 'layer-name-display';
+    span.textContent = newName || currentName;
+    input.replaceWith(span);
+  }
+
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+  });
+}
+
+function closeFilterEditor() {
+  var overlay = document.getElementById('filter-editor-overlay');
+  if (overlay) overlay.remove();
+}
+
+function openFilterEditor(layer) {
+  closeFilterEditor();
+  var overlay = document.createElement('div');
+  overlay.id = 'filter-editor-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;';
+
+  var fieldOpts = '';
+  (layer.fields || []).forEach(function(f) {
+    fieldOpts += '<option value="' + escapeHtml(f) + '" ' + (layer.filterField === f ? 'selected' : '') + '>' + escapeHtml(f) + '</option>';
+  });
+
+  var operators = [
+    { value: 'equals', label: 'Equals' },
+    { value: 'not_equals', label: 'Not equals' },
+    { value: 'contains', label: 'Contains' },
+    { value: 'not_contains', label: 'Does not contain' },
+    { value: 'greater', label: 'Greater than' },
+    { value: 'less', label: 'Less than' },
+    { value: 'greater_eq', label: 'Greater or equal' },
+    { value: 'less_eq', label: 'Less or equal' },
+    { value: 'is_empty', label: 'Is empty' },
+    { value: 'not_empty', label: 'Is not empty' }
+  ];
+  var opOpts = '';
+  operators.forEach(function(o) {
+    opOpts += '<option value="' + o.value + '" ' + (layer.filterOp === o.value ? 'selected' : '') + '>' + o.label + '</option>';
+  });
+
+  var hideValue = layer.filterOp === 'is_empty' || layer.filterOp === 'not_empty';
+  var isAdvanced = layer.filterMode === 'advanced';
+
+  overlay.innerHTML = [
+    '<div style="background:var(--bg-sidebar);border:1px solid var(--border-color);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:480px;display:flex;flex-direction:column;">',
+      '<div style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);flex-shrink:0;">',
+        '<h3 style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1;">Filter Data: ' + escapeHtml(layer.name) + '</h3>',
+        '<button class="fe-close" style="background:rgba(255,255,255,0.04);border:1px solid var(--border-color);color:var(--text-muted);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">&times;</button>',
+      '</div>',
+      '<div style="padding:16px 20px;overflow-y:auto;">',
+        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:500;color:var(--text-primary);margin-bottom:14px;">',
+          '<input type="checkbox" class="fe-enabled" ' + (layer.filterEnabled ? 'checked' : '') + ' style="accent-color:var(--accent);" />',
+          'Enable filter',
+        '</label>',
+        '<div class="fe-settings" style="display:' + (layer.filterEnabled ? 'block' : 'none') + ';">',
+          // Mode toggle
+          '<div style="display:flex;gap:0;margin-bottom:14px;border:1px solid var(--border-color);border-radius:var(--radius-md);overflow:hidden;">',
+            '<button type="button" class="fe-mode-btn" data-mode="simple" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border:none;cursor:pointer;background:' + (isAdvanced ? 'transparent' : 'var(--accent)') + ';color:' + (isAdvanced ? 'var(--text-muted)' : '#fff') + ';">Simple</button>',
+            '<button type="button" class="fe-mode-btn" data-mode="advanced" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border:none;cursor:pointer;background:' + (isAdvanced ? 'var(--accent)' : 'transparent') + ';color:' + (isAdvanced ? '#fff' : 'var(--text-muted)') + ';">Advanced (JS)</button>',
+          '</div>',
+          // Simple mode controls
+          '<div class="fe-simple" style="display:' + (isAdvanced ? 'none' : 'block') + ';">',
+            '<div style="margin-bottom:12px;">',
+              '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Field</label>',
+              '<select class="fe-field" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">' + fieldOpts + '</select>',
+            '</div>',
+            '<div style="margin-bottom:12px;">',
+              '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Condition</label>',
+              '<select class="fe-op" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">' + opOpts + '</select>',
+            '</div>',
+            '<div class="fe-value-wrap" style="margin-bottom:12px;display:' + (hideValue ? 'none' : 'block') + ';">',
+              '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Value</label>',
+              '<input type="text" class="fe-value" value="' + escapeHtml(layer.filterValue || '') + '" placeholder="e.g. Residential" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;" />',
+            '</div>',
+          '</div>',
+          // Advanced mode controls
+          '<div class="fe-advanced" style="display:' + (isAdvanced ? 'block' : 'none') + ';">',
+            '<div style="margin-bottom:6px;">',
+              '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Fields</label>',
+              '<div class="fe-field-pills" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">',
+                (layer.fields || []).map(function(f) {
+                  var safe = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(f) ? 'p.' + f : 'p[' + JSON.stringify(f) + ']';
+                  return '<span data-insert="' + escapeHtml(safe) + '" style="display:inline-block;padding:3px 8px;background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-size:11px;font-family:monospace;cursor:pointer;white-space:nowrap;">' + escapeHtml(f) + '</span>';
+                }).join('') || '<span style="font-size:10px;color:var(--text-muted);">No fields available</span>',
+              '</div>',
+            '</div>',
+            '<div style="margin-bottom:8px;">',
+              '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">JavaScript expression</label>',
+              '<textarea class="fe-expression" rows="5" placeholder="e.g. p.ZONING === &#39;Residential&#39; &amp;&amp; p.ACRES &gt; 10" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:&#39;Courier New&#39;,monospace;outline:none;resize:vertical;box-sizing:border-box;">' + escapeHtml(layer.filterExpression || '') + '</textarea>',
+            '</div>',
+            '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-bottom:4px;">Use <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;">p</code> for the feature properties object. Click a field above to insert.</div>',
+            '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;">',
+              'Examples:',
+              '<div style="margin-top:4px;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;white-space:pre-wrap;">p.ZONING === \'Residential\'<br/>p.ACRES &gt; 10<br/>p.TYPE !== \'Excluded\' &amp;&amp; p.VALUE &gt;= 100<br/>Number(p.YEAR) &gt; 2000 || p.STATUS === \'Active\'</div>',
+            '</div>',
+          '</div>',
+        '</div>',
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">',
+          '<button type="button" class="fe-apply-btn" style="padding:7px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-md);font-size:12px;font-weight:600;cursor:pointer;">Apply</button>',
+          '<button type="button" class="fe-cancel-btn" style="padding:7px 20px;background:rgba(255,255,255,0.06);color:var(--text-secondary);border:1px solid var(--border-color);border-radius:var(--radius-md);font-size:12px;cursor:pointer;">Cancel</button>',
+        '</div>',
+      '</div>',
+    '</div>'
+  ].join('');
+
+  // Wire mode toggle
+  overlay.querySelectorAll('.fe-mode-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      overlay.querySelectorAll('.fe-mode-btn').forEach(function(b) {
+        b.style.background = 'transparent';
+        b.style.color = 'var(--text-muted)';
+      });
+      btn.style.background = 'var(--accent)';
+      btn.style.color = '#fff';
+      var mode = btn.dataset.mode;
+      overlay.querySelector('.fe-simple').style.display = mode === 'simple' ? 'block' : 'none';
+      overlay.querySelector('.fe-advanced').style.display = mode === 'advanced' ? 'block' : 'none';
+    });
+  });
+
+  // Field pill click → insert at cursor
+  overlay.querySelectorAll('.fe-field-pills span[data-insert]').forEach(function(pill) {
+    pill.addEventListener('click', function() {
+      var ta = overlay.querySelector('.fe-expression');
+      if (!ta) return;
+      var insert = pill.dataset.insert;
+      var start = ta.selectionStart, end = ta.selectionEnd;
+      ta.value = ta.value.substring(0, start) + insert + ta.value.substring(end);
+      ta.selectionStart = ta.selectionEnd = start + insert.length;
+      ta.focus();
+    });
+  });
+
+  // Wire events
+  var enabledEl = overlay.querySelector('.fe-enabled');
+  var settingsEl = overlay.querySelector('.fe-settings');
+  var opEl = overlay.querySelector('.fe-op');
+  var valueWrap = overlay.querySelector('.fe-value-wrap');
+
+  enabledEl.addEventListener('change', function() {
+    settingsEl.style.display = enabledEl.checked ? 'block' : 'none';
+  });
+
+  opEl.addEventListener('change', function() {
+    valueWrap.style.display = (opEl.value === 'is_empty' || opEl.value === 'not_empty') ? 'none' : 'block';
+  });
+
+  overlay.querySelector('.fe-close').addEventListener('click', closeFilterEditor);
+  overlay.querySelector('.fe-cancel-btn').addEventListener('click', closeFilterEditor);
+  overlay.querySelector('.fe-apply-btn').addEventListener('click', function() {
+    layer.filterEnabled = enabledEl.checked;
+    var activeMode = 'simple';
+    overlay.querySelectorAll('.fe-mode-btn').forEach(function(b) {
+      if (b.style.background === 'var(--accent)') activeMode = b.dataset.mode;
+    });
+    layer.filterMode = activeMode;
+    layer.filterField = overlay.querySelector('.fe-field').value;
+    layer.filterOp = opEl.value;
+    layer.filterValue = overlay.querySelector('.fe-value').value;
+    layer.filterExpression = overlay.querySelector('.fe-expression') ? overlay.querySelector('.fe-expression').value : '';
+    closeFilterEditor();
+    rebuildLeafletLayer(layer);
+    renderUI();
+    if (typeof renderAttrTable === 'function') renderAttrTable();
+  });
+  overlay.addEventListener('mousedown', function(e) { if (e.target === overlay) closeFilterEditor(); });
+
+  document.body.appendChild(overlay);
+}
+
+// =========================
+// SELECT BY ATTRIBUTE
+// =========================
+
+function closeSelectByAttribute() {
+  var overlay = document.getElementById('select-by-attr-overlay');
+  if (overlay) overlay.remove();
+}
+
+function openSelectByAttribute(layer) {
+  closeSelectByAttribute();
+  var overlay = document.createElement('div');
+  overlay.id = 'select-by-attr-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;';
+
+  var fieldOpts = '';
+  (layer.fields || []).forEach(function(f) {
+    fieldOpts += '<option value="' + escapeHtml(f) + '">' + escapeHtml(f) + '</option>';
+  });
+
+  var operators = [
+    { value: 'equals', label: 'Equals' },
+    { value: 'not_equals', label: 'Not equals' },
+    { value: 'contains', label: 'Contains' },
+    { value: 'not_contains', label: 'Does not contain' },
+    { value: 'greater', label: 'Greater than' },
+    { value: 'less', label: 'Less than' },
+    { value: 'greater_eq', label: 'Greater or equal' },
+    { value: 'less_eq', label: 'Less or equal' },
+    { value: 'is_empty', label: 'Is empty' },
+    { value: 'not_empty', label: 'Is not empty' }
+  ];
+  var opOpts = '';
+  operators.forEach(function(o) {
+    opOpts += '<option value="' + o.value + '">' + o.label + '</option>';
+  });
+
+  overlay.innerHTML = [
+    '<div style="background:var(--bg-sidebar);border:1px solid var(--border-color);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:480px;display:flex;flex-direction:column;">',
+      '<div style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);flex-shrink:0;">',
+        '<h3 style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1;">Select by Attribute: ' + escapeHtml(layer.name) + '</h3>',
+        '<button class="sba-close" style="background:rgba(255,255,255,0.04);border:1px solid var(--border-color);color:var(--text-muted);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">&times;</button>',
+      '</div>',
+      '<div style="padding:16px 20px;overflow-y:auto;">',
+        // Mode toggle
+        '<div style="display:flex;gap:0;margin-bottom:14px;border:1px solid var(--border-color);border-radius:var(--radius-md);overflow:hidden;">',
+          '<button type="button" class="sba-mode-btn" data-mode="simple" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border:none;cursor:pointer;background:var(--accent);color:#fff;">Simple</button>',
+          '<button type="button" class="sba-mode-btn" data-mode="advanced" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border:none;cursor:pointer;background:transparent;color:var(--text-muted);">Advanced (JS)</button>',
+        '</div>',
+        // Simple mode controls
+        '<div class="sba-simple">',
+          '<div style="margin-bottom:12px;">',
+            '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Field</label>',
+            '<select class="sba-field" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">' + (fieldOpts || '<option value="">No fields available</option>') + '</select>',
+          '</div>',
+          '<div style="margin-bottom:12px;">',
+            '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Condition</label>',
+            '<select class="sba-op" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">' + opOpts + '</select>',
+          '</div>',
+          '<div class="sba-value-wrap" style="margin-bottom:12px;">',
+            '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Value</label>',
+            '<input type="text" class="sba-value" value="" placeholder="e.g. Residential" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;" />',
+          '</div>',
+        '</div>',
+        // Advanced mode controls
+        '<div class="sba-advanced" style="display:none;">',
+          '<div style="margin-bottom:6px;">',
+            '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Fields</label>',
+            '<div class="sba-field-pills" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">',
+              (layer.fields || []).map(function(f) {
+                var safe = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(f) ? 'p.' + f : 'p[' + JSON.stringify(f) + ']';
+                return '<span data-insert="' + escapeHtml(safe) + '" style="display:inline-block;padding:3px 8px;background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-size:11px;font-family:monospace;cursor:pointer;white-space:nowrap;">' + escapeHtml(f) + '</span>';
+              }).join('') || '<span style="font-size:10px;color:var(--text-muted);">No fields available</span>',
+            '</div>',
+          '</div>',
+          '<div style="margin-bottom:8px;">',
+            '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">JavaScript expression</label>',
+            '<textarea class="sba-expression" rows="5" placeholder="e.g. p.ZONING === &#39;Residential&#39; &amp;&amp; p.ACRES &gt; 10" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:&#39;Courier New&#39;,monospace;outline:none;resize:vertical;box-sizing:border-box;"></textarea>',
+          '</div>',
+          '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-bottom:4px;">Use <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;">p</code> for the feature properties object. Click a field above to insert.</div>',
+          '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;">',
+            'Examples:',
+            '<div style="margin-top:4px;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;white-space:pre-wrap;">p.ZONING === \'Residential\'<br/>p.ACRES &gt; 10<br/>p.TYPE !== \'Excluded\' &amp;&amp; p.VALUE &gt;= 100<br/>Number(p.YEAR) &gt; 2000 || p.STATUS === \'Active\'</div>',
+          '</div>',
+        '</div>',
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">',
+          '<button type="button" class="sba-apply-btn" style="padding:7px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-md);font-size:12px;font-weight:600;cursor:pointer;">Select</button>',
+          '<button type="button" class="sba-cancel-btn" style="padding:7px 20px;background:rgba(255,255,255,0.06);color:var(--text-secondary);border:1px solid var(--border-color);border-radius:var(--radius-md);font-size:12px;cursor:pointer;">Cancel</button>',
+        '</div>',
+      '</div>',
+    '</div>'
+  ].join('');
+
+  // Mode toggle
+  overlay.querySelectorAll('.sba-mode-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      overlay.querySelectorAll('.sba-mode-btn').forEach(function(b) {
+        b.style.background = 'transparent';
+        b.style.color = 'var(--text-muted)';
+      });
+      btn.style.background = 'var(--accent)';
+      btn.style.color = '#fff';
+      var mode = btn.dataset.mode;
+      overlay.querySelector('.sba-simple').style.display = mode === 'simple' ? 'block' : 'none';
+      overlay.querySelector('.sba-advanced').style.display = mode === 'advanced' ? 'block' : 'none';
+    });
+  });
+
+  // Field pill click → insert at cursor
+  overlay.querySelectorAll('.sba-field-pills span[data-insert]').forEach(function(pill) {
+    pill.addEventListener('click', function() {
+      var ta = overlay.querySelector('.sba-expression');
+      if (!ta) return;
+      var insert = pill.dataset.insert;
+      var start = ta.selectionStart, end = ta.selectionEnd;
+      ta.value = ta.value.substring(0, start) + insert + ta.value.substring(end);
+      ta.selectionStart = ta.selectionEnd = start + insert.length;
+      ta.focus();
+    });
+  });
+
+  var opEl = overlay.querySelector('.sba-op');
+  var valueWrap = overlay.querySelector('.sba-value-wrap');
+  opEl.addEventListener('change', function() {
+    valueWrap.style.display = (opEl.value === 'is_empty' || opEl.value === 'not_empty') ? 'none' : 'block';
+  });
+
+  overlay.querySelector('.sba-close').addEventListener('click', closeSelectByAttribute);
+  overlay.querySelector('.sba-cancel-btn').addEventListener('click', closeSelectByAttribute);
+  overlay.querySelector('.sba-apply-btn').addEventListener('click', function() {
+    var activeMode = 'simple';
+    overlay.querySelectorAll('.sba-mode-btn').forEach(function(b) {
+      if (b.style.background === 'var(--accent)') activeMode = b.dataset.mode;
+    });
+
+    var features = layer.geojson.features || (layer.geojson.type === 'Feature' ? [layer.geojson] : []);
+    var matched = [];
+
+    if (activeMode === 'advanced') {
+      var expr = overlay.querySelector('.sba-expression').value;
+      closeSelectByAttribute();
+      if (!expr) return;
+      features.forEach(function(f, idx) {
+        if (evaluateFilterExpression(expr, f.properties || {})) matched.push(idx);
+      });
+    } else {
+      var field = overlay.querySelector('.sba-field').value;
+      var op = opEl.value;
+      var val = overlay.querySelector('.sba-value').value;
+      closeSelectByAttribute();
+      if (!field) return;
+      features.forEach(function(f, idx) {
+        var propVal = f.properties ? f.properties[field] : undefined;
+        if (propVal === undefined || propVal === null) propVal = '';
+        var strVal = String(propVal);
+        var match = false;
+        switch (op) {
+          case 'equals': match = strVal === val; break;
+          case 'not_equals': match = strVal !== val; break;
+          case 'contains': match = strVal.indexOf(val) !== -1; break;
+          case 'not_contains': match = strVal.indexOf(val) === -1; break;
+          case 'greater': match = parseFloat(strVal) > parseFloat(val); break;
+          case 'less': match = parseFloat(strVal) < parseFloat(val); break;
+          case 'greater_eq': match = parseFloat(strVal) >= parseFloat(val); break;
+          case 'less_eq': match = parseFloat(strVal) <= parseFloat(val); break;
+          case 'is_empty': match = strVal === ''; break;
+          case 'not_empty': match = strVal !== ''; break;
+        }
+        if (match) matched.push(idx);
+      });
+    }
+
+    var old = getAllSelected();
+    selectedFeatures = {};
+    var rebuildLayers = {};
+    old.forEach(function(item) { rebuildLayers[item.layerId] = true; });
+    rebuildLayers[layer.id] = true;
+    var selSet = getSelectedSet(layer.id);
+    matched.forEach(function(idx) { selSet.add(idx); });
+    for (var lid in rebuildLayers) {
+      var l = layerStore.find(function(x) { return x.id === lid; });
+      if (l) rebuildLeafletLayer(l, { renderUI: false });
+    }
+    if (typeof renderAttrTable === 'function') renderAttrTable();
+  });
+
+  overlay.addEventListener('mousedown', function(e) { if (e.target === overlay) closeSelectByAttribute(); });
+  document.body.appendChild(overlay);
+}
+
+function closePopupSettings() {
+  const overlay = document.getElementById('popup-settings-overlay');
+  if (overlay) overlay.remove();
+}
+
+function openPopupSettings(layer) {
+  closePopupSettings();
+  const overlay = document.createElement('div');
+  overlay.id = 'popup-settings-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;';
+
+  const selectedFields = new Set(
+    Array.isArray(layer.popupFields) ? layer.popupFields : (layer.fields || [])
+  );
+
+  let fieldCheckboxes = '';
+  (layer.fields || []).forEach(f => {
+    const checked = selectedFields.has(f) ? 'checked' : '';
+    fieldCheckboxes += `<label style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px;cursor:pointer;color:var(--text-secondary);">
+      <input type="checkbox" class="ps-field-cb" value="${escapeHtml(f)}" ${checked} style="accent-color:var(--accent);"/> <span>${escapeHtml(f)}</span>
+    </label>`;
+  });
+
+  overlay.innerHTML = `
+    <div class="popup-settings-panel" style="background:var(--bg-sidebar);border:1px solid var(--border-color);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:480px;max-height:80vh;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);flex-shrink:0;">
+        <h3 style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1;">Popup Settings: ${escapeHtml(layer.name)}</h3>
+        <button class="ps-close" style="background:rgba(255,255,255,0.04);border:1px solid var(--border-color);color:var(--text-muted);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">&times;</button>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px 20px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:500;color:var(--text-primary);margin-bottom:14px;">
+          <input type="checkbox" class="ps-enabled" ${layer.popupEnabled !== false ? 'checked' : ''} style="accent-color:var(--accent);" />
+          Show popup on click
+        </label>
+        <div class="ps-settings" style="display:${layer.popupEnabled !== false ? 'block' : 'none'};">
+          <div style="margin-bottom:12px;">
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Popup title</label>
+            <input type="text" class="ps-title" value="${escapeHtml(layer.popupTitle || '')}" placeholder="${escapeHtml(layer.name)} or {fieldName}" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;" />
+            <span style="font-size:10px;color:var(--text-muted);margin-top:2px;display:block;">Leave blank for layer name. Use {attribute} for feature values.</span>
+          </div>
+          <div style="margin-bottom:12px;">
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Attributes to show</label>
+            <select class="ps-field-mode" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">
+              <option value="all" ${!Array.isArray(layer.popupFields) ? 'selected' : ''}>All attributes</option>
+              <option value="selected" ${Array.isArray(layer.popupFields) ? 'selected' : ''}>Selected only</option>
+            </select>
+            <div class="ps-field-list" style="display:${Array.isArray(layer.popupFields) ? 'block' : 'none'};margin-top:6px;max-height:100px;overflow-y:auto;border:1px solid var(--border-color);border-radius:var(--radius-md);padding:6px;background:rgba(0,0,0,0.2);">${fieldCheckboxes}</div>
+          </div>
+          <div style="margin-bottom:12px;">
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Custom template (optional)</label>
+            <textarea class="ps-template" rows="3" placeholder="e.g. Name: {name}&#10;Population: {pop}" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;resize:vertical;box-sizing:border-box;">${escapeHtml(layer.popupTemplate || '')}</textarea>
+            <span style="font-size:10px;color:var(--text-muted);margin-top:2px;display:block;">Overrides attribute list. One line per row. Use {fieldName} tokens.</span>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;color:var(--text-primary);">
+            <input type="checkbox" class="ps-show-labels" ${layer.popupShowLabels !== false ? 'checked' : ''} style="accent-color:var(--accent);" />
+            Show attribute labels
+          </label>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Wire events
+  const enabledEl = overlay.querySelector('.ps-enabled');
+  const settingsEl = overlay.querySelector('.ps-settings');
+  const titleEl = overlay.querySelector('.ps-title');
+  const modeEl = overlay.querySelector('.ps-field-mode');
+  const fieldListEl = overlay.querySelector('.ps-field-list');
+  const templateEl = overlay.querySelector('.ps-template');
+  const labelsEl = overlay.querySelector('.ps-show-labels');
+
+  enabledEl.addEventListener('change', () => {
+    const on = enabledEl.checked;
+    settingsEl.style.display = on ? 'block' : 'none';
+    updateLayerPopup(layer.id, { popupEnabled: on });
+  });
+
+  titleEl.addEventListener('input', () => {
+    updateLayerPopup(layer.id, { popupTitle: titleEl.value }, { renderUI: false });
+  });
+
+  modeEl.addEventListener('change', () => {
+    if (modeEl.value === 'all') {
+      fieldListEl.style.display = 'none';
+      updateLayerPopup(layer.id, { popupFields: null });
+    } else {
+      fieldListEl.style.display = 'block';
+      layer.fields.forEach(f => selectedFields.add(f));
+      renderFieldList();
+      updateLayerPopup(layer.id, { popupFields: [...selectedFields] });
+    }
+  });
+
+  templateEl.addEventListener('input', () => {
+    updateLayerPopup(layer.id, { popupTemplate: templateEl.value }, { renderUI: false });
+  });
+
+  labelsEl.addEventListener('change', () => {
+    updateLayerPopup(layer.id, { popupShowLabels: labelsEl.checked });
+  });
+
+  function renderFieldList() {
+    fieldListEl.innerHTML = '';
+    (layer.fields || []).forEach(f => {
+      const label = document.createElement('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px;cursor:pointer;color:var(--text-secondary);';
+      const checked = selectedFields.has(f) ? 'checked' : '';
+      label.innerHTML = '<input type="checkbox" class="ps-field-cb" value="' + escapeHtml(f) + '" ' + checked + ' style="accent-color:var(--accent);"/> <span>' + escapeHtml(f) + '</span>';
+      label.querySelector('input').addEventListener('change', (e) => {
+        if (e.target.checked) selectedFields.add(f);
+        else selectedFields.delete(f);
+        updateLayerPopup(layer.id, { popupFields: [...selectedFields] }, { renderUI: false });
+      });
+      fieldListEl.appendChild(label);
+    });
+  }
+
+  overlay.querySelector('.ps-close').addEventListener('click', closePopupSettings);
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closePopupSettings(); });
+
+  document.body.appendChild(overlay);
 }
 
 function closeLabelEditor() {
@@ -1299,7 +2401,7 @@ function openLabelEditor(layer) {
     rebuildLeafletLayer(layer);
     closeLabelEditor();
   });
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeLabelEditor(); });
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeLabelEditor(); });
 
   document.body.appendChild(overlay);
 }
@@ -1369,7 +2471,7 @@ function openCategorySymbolEditor(layer, catKey) {
   const overlay = document.createElement('div');
   overlay.id = 'sym-editor-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;';
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCategorySymbolEditor(); });
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeCategorySymbolEditor(); });
 
   const panel = document.createElement('div');
   panel.style.cssText = 'background:var(--panel-bg,#1e293b);border:1px solid var(--border-color,#334155);border-radius:12px;padding:20px;max-width:420px;width:90%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
@@ -1610,10 +2712,11 @@ function renderUI() {
     });
 
     div.innerHTML = `
-      <div class="layer-header">
+      <div class="layer-header" data-layer-id="${layer.id}">
         <div class="layer-title-wrapper">
           <input type="checkbox" class="layer-checkbox" ${layer.visible ? "checked" : ""} />
-          <input type="text" class="layer-name-input" value="${escapeHtml(layer.name)}" title="Click to rename layer" />
+          <span class="layer-name-display">${escapeHtml(layer.name)}</span>
+          ${layer.filterEnabled && (layer.filterMode === 'advanced' ? layer.filterExpression : layer.filterField) ? '<span style="font-size:9px;color:var(--accent);margin-left:4px;flex-shrink:0;">[filter' + (layer.filterMode === 'advanced' ? '*]' : ']') + '</span>' : ''}
         </div>
         <div class="reorder-btns">
           <button class="btn-up" ${i === layerStore.length - 1 ? 'disabled' : ''}>▲</button>
@@ -1763,55 +2866,17 @@ function renderUI() {
           </div>
           <input type="range" class="layer-opacity" min="0" max="100" value="${Math.round((layer.opacity ?? 0.4) * 100)}" style="width:100%; accent-color:var(--accent);" />
         </div>
+          </div>
+        </div>
 
-        <div class="popup-config-panel">
-          <div class="form-group" style="margin-bottom:8px;">
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-              <input type="checkbox" class="popup-enabled" ${layer.popupEnabled !== false ? 'checked' : ''} style="accent-color:var(--accent);" />
-              Show popup on click
-            </label>
-          </div>
-          <div class="popup-settings" style="display:${layer.popupEnabled !== false ? 'block' : 'none'};">
-            <div class="form-group">
-              <label>Popup title</label>
-              <input type="text" class="popup-title" value="${escapeHtml(layer.popupTitle || '')}" placeholder="${escapeHtml(layer.name)} or {fieldName}" />
-              <span style="font-size:10px; color:var(--text-muted);">Leave blank for layer name. Use {attribute} for feature values.</span>
-            </div>
-            <div class="form-group">
-              <label>Attributes to show</label>
-              <select class="popup-field-mode">
-                <option value="all" ${!Array.isArray(layer.popupFields) ? 'selected' : ''}>All attributes</option>
-                <option value="selected" ${Array.isArray(layer.popupFields) ? 'selected' : ''}>Selected only</option>
-              </select>
-              <div class="popup-field-list" style="display:${Array.isArray(layer.popupFields) ? 'block' : 'none'}; margin-top:6px; max-height:100px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-md); padding:6px; background:rgba(0,0,0,0.2);"></div>
-            </div>
-            <div class="form-group">
-              <label>Custom template (optional)</label>
-              <textarea class="popup-template" rows="3" placeholder="e.g. Name: {name}&#10;Population: {pop}">${escapeHtml(layer.popupTemplate || '')}</textarea>
-              <span style="font-size:10px; color:var(--text-muted);">Overrides attribute list. One line per row. Use {fieldName} tokens.</span>
-            </div>
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:11px;">
-              <input type="checkbox" class="popup-show-labels" ${layer.popupShowLabels !== false ? 'checked' : ''} style="accent-color:var(--accent);" />
-              Show attribute labels
-            </label>
-          </div>
-        </div>
-        <div style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.06); padding-top:8px;">
-          <button type="button" class="btn-secondary layer-label-btn" style="font-size:11px; padding:7px 0;">Labels${layer.labelEnabled && layer.labelField ? `: ${layer.labelField}` : ''}</button>
-        </div>
-          </div>
-        </div>
       </div>
     `;
 
-    const nameInput = div.querySelector('.layer-name-input');
-    nameInput.addEventListener('change', () => renameLayer(layer.id, nameInput.value));
-    nameInput.addEventListener('blur', () => renameLayer(layer.id, nameInput.value));
-    nameInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        nameInput.blur();
-      }
+    // Right-click context menu on entire layer card
+    div.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showLayerContextMenu(e, layer);
     });
 
     // Event attachments
@@ -1888,83 +2953,6 @@ function renderUI() {
           updateStyle(layer.id, 'pointStrokeWidth', w, { renderUI: false });
         });
       }
-    }
-
-    const popupPanel = div.querySelector('.popup-config-panel');
-    if (popupPanel) {
-      const enabledEl = popupPanel.querySelector('.popup-enabled');
-      const settingsEl = popupPanel.querySelector('.popup-settings');
-      const titleEl = popupPanel.querySelector('.popup-title');
-      const modeEl = popupPanel.querySelector('.popup-field-mode');
-      const fieldListEl = popupPanel.querySelector('.popup-field-list');
-      const templateEl = popupPanel.querySelector('.popup-template');
-      const labelsEl = popupPanel.querySelector('.popup-show-labels');
-
-      const selectedFields = new Set(
-        Array.isArray(layer.popupFields) ? layer.popupFields : layer.fields
-      );
-
-      function renderPopupFieldList() {
-        if (!fieldListEl) return;
-        fieldListEl.innerHTML = '';
-        layer.fields.forEach(f => {
-          const label = document.createElement('label');
-          label.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px;cursor:pointer;color:var(--text-secondary);';
-          const checked = selectedFields.has(f) ? 'checked' : '';
-          label.innerHTML = `<input type="checkbox" value="${escapeHtml(f)}" ${checked} style="accent-color:var(--accent);"/> <span>${escapeHtml(f)}</span>`;
-          label.querySelector('input').addEventListener('change', (e) => {
-            if (e.target.checked) selectedFields.add(f);
-            else selectedFields.delete(f);
-            updateLayerPopup(layer.id, { popupFields: [...selectedFields] }, { renderUI: false });
-          });
-          fieldListEl.appendChild(label);
-        });
-      }
-
-      if (Array.isArray(layer.popupFields) && fieldListEl) {
-        renderPopupFieldList();
-      }
-
-      if (enabledEl) {
-        enabledEl.addEventListener('change', () => {
-          const on = enabledEl.checked;
-          if (settingsEl) settingsEl.style.display = on ? 'block' : 'none';
-          updateLayerPopup(layer.id, { popupEnabled: on });
-        });
-      }
-      if (titleEl) {
-        titleEl.addEventListener('input', () => {
-          updateLayerPopup(layer.id, { popupTitle: titleEl.value }, { renderUI: false });
-        });
-      }
-      if (modeEl && fieldListEl) {
-        modeEl.addEventListener('change', () => {
-          if (modeEl.value === 'all') {
-            fieldListEl.style.display = 'none';
-            updateLayerPopup(layer.id, { popupFields: null });
-          } else {
-            fieldListEl.style.display = 'block';
-            layer.fields.forEach(f => selectedFields.add(f));
-            renderPopupFieldList();
-            updateLayerPopup(layer.id, { popupFields: [...selectedFields] });
-          }
-        });
-      }
-      if (templateEl) {
-        templateEl.addEventListener('input', () => {
-          updateLayerPopup(layer.id, { popupTemplate: templateEl.value }, { renderUI: false });
-        });
-      }
-      if (labelsEl) {
-        labelsEl.addEventListener('change', () => {
-          updateLayerPopup(layer.id, { popupShowLabels: labelsEl.checked });
-        });
-      }
-    }
-
-    const labelBtn = div.querySelector('.layer-label-btn');
-    if (labelBtn) {
-      labelBtn.addEventListener('click', () => openLabelEditor(layer));
     }
 
     const symbologyHeader = div.querySelector('[data-section="symbology"]');
@@ -2195,11 +3183,31 @@ function renderUI() {
 
     const legendGroup = document.createElement('div');
     legendGroup.className = 'legend-group';
+    legendGroup.draggable = true;
+    legendGroup.dataset.layerIndex = i;
+    if (!layer.showLegend) legendGroup.style.opacity = '0.35';
 
     const legendItem = document.createElement('div');
     legendItem.className = 'legend-item';
-    legendItem.innerText = layer.name;
+    legendItem.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    const eyeBtn = document.createElement('span');
+    eyeBtn.style.cssText = 'cursor:pointer;font-size:10px;color:var(--text-muted);flex-shrink:0;line-height:1;';
+    eyeBtn.textContent = layer.showLegend ? '👁' : '🚫';
+    eyeBtn.title = layer.showLegend ? 'Hide from legend' : 'Show in legend';
+    eyeBtn.addEventListener('click', (function(lid, cur) {
+      return function() {
+        var l = layerStore.find(function(x) { return x.id === lid; });
+        if (l) { l.showLegend = !cur; renderUI(); }
+      };
+    })(layer.id, layer.showLegend));
+    legendItem.appendChild(eyeBtn);
+    var nameSpan = document.createElement('span');
+    nameSpan.textContent = layer.name;
+    nameSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    legendItem.appendChild(nameSpan);
     legendGroup.appendChild(legendItem);
+
+    if (!layer.showLegend) { legendDiv.appendChild(legendGroup); continue; }
 
     if (layer.symbologyType === 'single') {
       const subItem = document.createElement('div');
@@ -2227,7 +3235,11 @@ function renderUI() {
       legendGroup.appendChild(sortBar);
 
       const orderedKeys = getOrderedCategoryKeys(layer);
-      orderedKeys.forEach((catKey) => {
+      var hiddenSet = {};
+      layer.hiddenCatKeys.forEach(function(k) { hiddenSet[k] = true; });
+      var hiddenCount = layer.hiddenCatKeys.length;
+      orderedKeys.forEach(function(catKey) {
+        if (hiddenSet[catKey]) return;
         const row = document.createElement('div');
         row.className = 'legend-subitem-row';
         row.draggable = true;
@@ -2323,18 +3335,55 @@ function renderUI() {
         delBtn.textContent = '×';
         delBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          delete layer.categories[catKey];
-          delete layer.customCategoryLabels?.[catKey];
-          delete layer.categorySymbols?.[catKey];
-          if (layer.categoryOrder) layer.categoryOrder = layer.categoryOrder.filter(k => k !== catKey);
-          if (layerHasPoints(layer)) { rebuildLeafletLayer(layer); }
-          else { refreshLayerStyle(layer); renderUI(); }
+          if (!layer.hiddenCatKeys.includes(catKey)) {
+            layer.hiddenCatKeys.push(catKey);
+          }
+          renderUI();
         });
         row.appendChild(delBtn);
 
         legendGroup.appendChild(row);
       });
+      if (hiddenCount > 0) {
+        var showAllBtn = document.createElement('div');
+        showAllBtn.style.cssText = 'font-size:10px;color:var(--accent);cursor:pointer;padding:4px 8px;margin-top:2px;';
+        showAllBtn.textContent = 'Show ' + hiddenCount + ' hidden categor' + (hiddenCount === 1 ? 'y' : 'ies');
+        showAllBtn.addEventListener('click', (function(lid) {
+          return function() {
+            var l = layerStore.find(function(x) { return x.id === lid; });
+            if (l) { l.hiddenCatKeys = []; renderUI(); }
+          };
+        })(layer.id));
+        legendGroup.appendChild(showAllBtn);
+      }
     }
+
+    // Legend group drag-and-drop reordering
+    legendGroup.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', String(i));
+      legendGroup.classList.add('dragging');
+    });
+    legendGroup.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      legendGroup.classList.add('drag-over');
+    });
+    legendGroup.addEventListener('dragleave', () => {
+      legendGroup.classList.remove('drag-over');
+    });
+    legendGroup.addEventListener('drop', (e) => {
+      e.preventDefault();
+      legendGroup.classList.remove('drag-over');
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      if (isNaN(fromIdx) || fromIdx === i) return;
+      const layer = layerStore.splice(fromIdx, 1)[0];
+      layerStore.splice(i, 0, layer);
+      renderUI();
+      syncMapZIndex();
+    });
+    legendGroup.addEventListener('dragend', () => {
+      legendGroup.classList.remove('dragging');
+      document.querySelectorAll('.legend-group.drag-over').forEach(el => el.classList.remove('drag-over'));
+    });
 
     legendDiv.appendChild(legendGroup);
   }
@@ -2413,9 +3462,18 @@ const MapSearchControl = L.Control.extend({
     // Initialize based on searchMode
     if (searchMode === 'off') { container.style.display = 'none'; }
     if (searchMode === 'pin' && toggleBtn) { toggleBtn.style.display = 'none'; setPinnedMode(); }
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function() {
+        setMode(searchMode !== 'pin');
+        // Sync sidebar radio
+        var radio = document.querySelector('input[name="searchMode"][value="' + searchMode + '"]');
+        if (radio) radio.checked = true;
+      });
+    }
 
     function setPinnedMode() {
       isPinMode = true;
+      searchMode = 'pin';
       input.placeholder = 'lat, lon (e.g. 43.86, -79.29)';
       searchBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
       searchBtn.title = 'Place pin';
@@ -2426,6 +3484,7 @@ const MapSearchControl = L.Control.extend({
 
     function setSearchMode() {
       isPinMode = false;
+      searchMode = 'both';
       input.placeholder = 'Search places\u2026';
       searchBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
       searchBtn.title = 'Search';
@@ -2452,7 +3511,7 @@ const MapSearchControl = L.Control.extend({
     }
 
     function doAction() {
-      if (isPinMode) {
+      if (searchMode === 'pin') {
         const parts = input.value.split(',').map(s => s.trim());
         if (parts.length === 2) {
           const lat = parseFloat(parts[0]);
@@ -2507,10 +3566,16 @@ new MapSearchControl().addTo(map);
 
 // Refresh warning
 window.addEventListener('beforeunload', (e) => {
-  if (layerStore.length > 0 || projectTitle || dataNote) {
-    e.preventDefault();
-    e.returnValue = '';
+  if (layerStore.length > 0 || document.getElementById('projectTitle').value || document.getElementById('dataNote').value) {
+    e.preventDefault(); e.returnValue = '';
   }
+});
+
+document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+document.querySelector('#attr-table-panel .attr-table-bar').addEventListener('click', toggleAttrTable);
+document.addEventListener('click', function(e) {
+  var menu = document.getElementById('ctxMenu');
+  if (menu && !menu.contains(e.target)) closeCtxMenu();
 });
 
 // Drag-and-drop file upload
@@ -2575,7 +3640,18 @@ function getLayerExportPayload(l) {
     labelSize: l.labelSize || 12,
     labelColor: l.labelColor || '#ffffff',
     labelStrokeColor: l.labelStrokeColor || '#000000',
-    labelStrokeWidth: l.labelStrokeWidth ?? 2
+    labelStrokeWidth: l.labelStrokeWidth ?? 2,
+    colorRamp: l.colorRamp || '',
+    colorRampReversed: l.colorRampReversed || false,
+    customCategoryLabels: l.customCategoryLabels || {},
+    hiddenCatKeys: l.hiddenCatKeys || [],
+    showLegend: l.showLegend !== false,
+    filterEnabled: l.filterEnabled !== false,
+    filterMode: l.filterMode === 'advanced' ? 'advanced' : 'simple',
+    filterField: l.filterField || '',
+    filterOp: l.filterOp || 'equals',
+    filterValue: l.filterValue || '',
+    filterExpression: l.filterExpression || ''
   };
 }
 
@@ -2652,7 +3728,18 @@ function loadProjectSnapshot(snapshot) {
       labelSize: layerData.labelSize || 12,
       labelColor: layerData.labelColor || '#ffffff',
       labelStrokeColor: layerData.labelStrokeColor || '#000000',
-      labelStrokeWidth: layerData.labelStrokeWidth ?? 2
+      labelStrokeWidth: layerData.labelStrokeWidth ?? 2,
+      colorRamp: layerData.colorRamp || '',
+      colorRampReversed: layerData.colorRampReversed || false,
+      customCategoryLabels: layerData.customCategoryLabels || {},
+      hiddenCatKeys: layerData.hiddenCatKeys || [],
+      showLegend: layerData.showLegend !== false,
+      filterEnabled: layerData.filterEnabled !== false,
+      filterMode: layerData.filterMode === 'advanced' ? 'advanced' : 'simple',
+      filterField: layerData.filterField || '',
+      filterOp: layerData.filterOp || 'equals',
+      filterValue: layerData.filterValue || '',
+      filterExpression: layerData.filterExpression || ''
     });
   });
 
@@ -2736,6 +3823,17 @@ function handleProjectFile(e) {
   reader.readAsText(file);
 }
 
+function exportLayerGeoJSON(layer) {
+  var json = JSON.stringify(layer.geojson, null, 2);
+  var blob = new Blob([json], { type: 'application/geo+json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = (layer.name || 'layer').replace(/[^\w\-]+/g, '-') + '.geojson';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function exportHTML() {
   syncProjectMetaFromUI();
   const exportData = {
@@ -2776,7 +3874,10 @@ function exportHTML() {
       labelSize: l.labelSize || 12,
       labelColor: l.labelColor || '#ffffff',
       labelStrokeColor: l.labelStrokeColor || '#000000',
-      labelStrokeWidth: l.labelStrokeWidth ?? 2
+      labelStrokeWidth: l.labelStrokeWidth ?? 2,
+      colorRamp: l.colorRamp || '',
+      colorRampReversed: l.colorRampReversed || false,
+      customCategoryLabels: l.customCategoryLabels || {}
     }))
   };
 
@@ -3511,14 +4612,6 @@ const MapSearchControl = L.Control.extend({
     }
     inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') doAction(); });
     btn.addEventListener('click', doAction);
-    return c;
-  }
-});
-              dd.appendChild(d);
-            });
-          }).catch(() => {});
-      }, 300);
-    });
     return c;
   }
 });

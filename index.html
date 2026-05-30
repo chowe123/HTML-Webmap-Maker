@@ -362,6 +362,23 @@
     background: rgba(15, 23, 42, 0.6);
   }
 
+  .layer-node.dragging {
+    opacity: 0.4;
+  }
+
+  .layer-node.drag-over {
+    border-top: 2px solid var(--accent);
+  }
+
+  .legend-group.dragging {
+    opacity: 0.4;
+  }
+
+  .legend-group.drag-over {
+    border-top: 2px solid var(--accent);
+    padding-top: 4px;
+  }
+
   .layer-header {
     display: flex;
     align-items: center;
@@ -384,7 +401,8 @@
   }
 
   .layer-title,
-  .layer-name-input {
+  .layer-name-input,
+  .layer-name-display {
     font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
@@ -414,6 +432,8 @@
     box-shadow: 0 0 0 2px var(--accent-glow);
     outline: none;
   }
+
+
 
   .reorder-btns {
     display: flex;
@@ -766,7 +786,7 @@
   /* MAP SPACE CONTAINER */
   #map {
     flex: 1;
-    height: 100vh;
+    min-height: 0;
     background-color: #0b0f19 !important;
   }
 
@@ -1015,6 +1035,175 @@
     background: rgba(255,255,255,0.1);
     color: var(--text-primary);
   }
+
+  #map-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    position: relative;
+  }
+
+  /* ATTRIBUTE TABLE PANEL */
+  #attr-table-panel {
+    flex-shrink: 0;
+    background: var(--bg-sidebar);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease;
+  }
+  #attr-table-panel.expanded {
+    max-height: 280px;
+  }
+  #attr-table-panel .attr-table-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    user-select: none;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+  }
+  #attr-table-panel .attr-table-bar:hover {
+    background: rgba(255,255,255,0.04);
+  }
+  #attr-table-panel .attr-table-bar-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  #attr-table-panel .attr-table-layer-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #attr-table-panel .attr-table-toggle {
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+  }
+  #attr-table-panel.expanded .attr-table-toggle {
+    transform: rotate(90deg);
+  }
+  #attr-table-panel .attr-table-body {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+  }
+  #attr-table-panel table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  #attr-table-panel thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  #attr-table-panel th {
+    background: rgba(15,23,42,0.95);
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+    cursor: context-menu;
+    user-select: none;
+  }
+  #attr-table-panel td {
+    padding: 3px 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: var(--text-primary);
+    min-width: 80px;
+  }
+  #attr-table-panel td .cell-input {
+    width: 100%;
+    padding: 3px 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    transition: var(--transition);
+    box-sizing: border-box;
+  }
+  #attr-table-panel td .cell-input:hover {
+    border-color: rgba(255,255,255,0.1);
+  }
+  #attr-table-panel td .cell-input:focus {
+    border-color: var(--accent);
+    background: rgba(15,23,42,0.6);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+  #attr-table-panel td.id-col {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-align: center;
+    width: 36px;
+    min-width: 36px;
+  }
+  #attr-table-panel .attr-row-selected {
+    background: rgba(0, 229, 255, 0.1) !important;
+    outline: 1px solid rgba(0, 229, 255, 0.4);
+  }
+  #attr-table-panel .attr-row:hover {
+    background: rgba(255,255,255,0.03);
+  }
+  .gis-point-symbol-icon.point-selected {
+    filter: drop-shadow(0 0 5px #00e5ff);
+  }
+  .gis-custom-point-icon.point-selected {
+    filter: drop-shadow(0 0 5px #00e5ff);
+  }
+
+  .ctx-menu {
+    position: fixed;
+    z-index: 10000;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 4px 0;
+    min-width: 160px;
+    display: none;
+  }
+  .ctx-menu .ctx-item {
+    padding: 7px 16px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: var(--transition);
+  }
+  .ctx-menu .ctx-item:hover {
+    background: rgba(255,255,255,0.06);
+  }
+  .ctx-menu .ctx-item .ctx-icon {
+    width: 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .ctx-menu .ctx-separator {
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px 0;
+  }
 </style>
 </head>
 <body>
@@ -1073,7 +1262,7 @@
               <span>None</span>
             </label>
           </div>
-          <div style="margin-top:6px; font-size:10px; color:var(--text-muted); line-height:1.4;">
+          <div id="basemap-note" style="margin-top:6px; font-size:10px; color:var(--text-muted); line-height:1.4;">
             OpenFreeMap (free). Satellite: Esri legacy endpoint (terms unclear). Use at your own risk.
           </div>
         </div>
@@ -1093,6 +1282,10 @@
               <span>Disabled</span>
             </label>
           </div>
+        </div>
+        <div style="margin-top:12px;">
+          <div style="font-size:11px; font-weight:500; color:var(--text-muted); margin-bottom:2px;">Projection</div>
+          <div style="font-size:12px; color:var(--text-primary);">EPSG:3857 (Web Mercator)</div>
         </div>
       </div>
     </div>
@@ -1135,7 +1328,19 @@
   </div>
 </div>
 
-<div id="map"></div>
+<div id="map-wrap">
+  <div id="map"></div>
+  <div class="ctx-menu" id="ctxMenu"></div>
+  <div id="attr-table-panel">
+    <div class="attr-table-bar">
+      <span class="attr-table-bar-title">Attribute Table</span>
+      <span class="attr-table-layer-name"></span>
+      <span class="attr-table-toggle">▶</span>
+      <span class="feature-count" style="font-size:10px; color:var(--text-muted); flex-shrink:0;"></span>
+    </div>
+    <div class="attr-table-body"></div>
+  </div>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
