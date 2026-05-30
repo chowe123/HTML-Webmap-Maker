@@ -56,6 +56,7 @@
   /* SIDEBAR LAYER CONTAINER */
   #sidebar {
     width: 380px;
+    flex-shrink: 0;
     background: var(--bg-sidebar);
     border-right: 1px solid var(--border-color);
     display: flex;
@@ -1038,10 +1039,12 @@
 
   #map-wrap {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     height: 100vh;
     position: relative;
+    overflow: hidden;
   }
 
   /* ATTRIBUTE TABLE PANEL */
@@ -1204,6 +1207,414 @@
     background: var(--border-color);
     margin: 4px 0;
   }
+
+  /* ===== LAYOUT MODE ===== */
+  #map-mode { flex: 1; display: flex; min-width: 0; height: 100vh; }
+  #map-mode.hidden { display: none; }
+
+  .sidebar-mode-row {
+    border-top: 1px solid var(--border-color);
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .btn-mode-switch {
+    width: 100%;
+    background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(139,92,246,0.15));
+    border: 1px solid var(--accent);
+    color: #93c5fd;
+    border-radius: var(--radius-md);
+    padding: 10px 16px;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+  }
+
+  .btn-mode-switch:hover {
+    background: linear-gradient(135deg, rgba(59,130,246,0.25), rgba(139,92,246,0.25));
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+
+  .btn-mode-switch.layout-active {
+    background: linear-gradient(135deg, rgba(139,92,246,0.25), rgba(59,130,246,0.25));
+    color: #c4b5fd;
+  }
+
+  #layout-container {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    height: 100vh;
+    background: #1e1e2e;
+  }
+
+  #layout-container.active { display: flex; }
+
+  #layout-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    background: #181825;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .ltb-btn {
+    padding: 6px 12px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: #a6adc8;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+    white-space: nowrap;
+  }
+
+  .ltb-btn:hover {
+    background: rgba(255,255,255,0.06);
+    color: #cdd6f4;
+  }
+
+  .ltb-btn.active {
+    background: rgba(137,180,250,0.15);
+    color: #89b4fa;
+    border-color: rgba(137,180,250,0.3);
+  }
+
+  .ltb-sep {
+    width: 1px;
+    height: 20px;
+    background: rgba(255,255,255,0.1);
+    margin: 0 4px;
+    flex-shrink: 0;
+  }
+
+  .ltb-export-btn {
+    padding: 6px 14px;
+    background: rgba(166,227,161,0.15);
+    border: 1px solid rgba(166,227,161,0.3);
+    border-radius: 6px;
+    color: #a6e3a1;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+  }
+
+  .ltb-export-btn:hover {
+    background: rgba(166,227,161,0.25);
+  }
+
+  .ltb-back-btn {
+    padding: 6px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    color: #a6adc8;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+    margin-left: auto;
+  }
+
+  .ltb-back-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #cdd6f4;
+  }
+
+  #layout-work {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  #layout-canvas-wrap {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px;
+    background: #181825;
+  }
+
+  #layout-canvas {
+    position: relative;
+    background: white;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .lf-element {
+    position: absolute;
+    cursor: move;
+    border: 1px solid transparent;
+    transition: box-shadow 0.15s;
+    overflow: hidden;
+  }
+
+  .lf-element.selected {
+    border-color: #89b4fa;
+    box-shadow: 0 0 0 1px #89b4fa;
+  }
+
+  .lf-element .lf-content {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .lf-resize-handle {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: white;
+    border: 1.5px solid #89b4fa;
+    z-index: 20;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    display: none;
+  }
+
+  .lf-element.selected .lf-resize-handle { display: block; }
+
+  .lf-resize-handle.nw { top: -4px; left: -4px; cursor: nw-resize; }
+  .lf-resize-handle.n  { top: -4px; left: 50%; margin-left: -4px; cursor: n-resize; }
+  .lf-resize-handle.ne { top: -4px; right: -4px; cursor: ne-resize; }
+  .lf-resize-handle.w  { top: 50%; left: -4px; margin-top: -4px; cursor: w-resize; }
+  .lf-resize-handle.e  { top: 50%; right: -4px; margin-top: -4px; cursor: e-resize; }
+  .lf-resize-handle.sw { bottom: -4px; left: -4px; cursor: sw-resize; }
+  .lf-resize-handle.s  { bottom: -4px; left: 50%; margin-left: -4px; cursor: s-resize; }
+  .lf-resize-handle.se { bottom: -4px; right: -4px; cursor: se-resize; }
+
+  .lf-rotate-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    top: -20px;
+    left: 50%;
+    margin-left: -5px;
+    background: #fab387;
+    border: 2px solid white;
+    border-radius: 50%;
+    cursor: crosshair;
+    z-index: 20;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    display: none;
+  }
+
+  .lf-rotate-handle::after {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    margin-left: -1px;
+    width: 2px;
+    height: 10px;
+    background: #fab387;
+  }
+
+  .lf-element.selected .lf-rotate-handle { display: block; }
+
+  .lf-element.lf-box .lf-content {
+    border-radius: 2px;
+  }
+
+  .lf-element.lf-text .lf-content {
+    font-size: 16px;
+    color: #333;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    word-break: break-word;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+  }
+
+  .lf-element.lf-text .lf-content[contenteditable="true"]:focus {
+    outline: none;
+    box-shadow: inset 0 0 0 1px #89b4fa;
+  }
+
+  .lf-element.lf-picture .lf-content img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  .lf-element.lf-scale-bar .lf-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .lf-element.lf-north-arrow .lf-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .lf-element.lf-legend .lf-content {
+  font-family: 'Inter', sans-serif;
+  color: #333;
+}
+
+.lf-element.lf-map-frame {
+    border: 2px solid rgba(0,0,0,0.2);
+    background: #f0f0f0;
+    overflow: hidden;
+  }
+
+  .lf-element.lf-map-frame .lf-content {
+    width: 100%;
+    height: 100%;
+  }
+
+  .lf-element.lf-map-frame .lf-content > #map {
+    width: 100% !important;
+    height: 100% !important;
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+  }
+
+  /* Properties Panel */
+  #layout-props {
+    width: 260px;
+    background: #1e1e2e;
+    border-left: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  #layout-props h3 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: #cdd6f4;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  #layout-props .lp-empty {
+    font-size: 12px;
+    color: #6c7086;
+    text-align: center;
+    padding: 40px 0;
+  }
+
+  #layout-props .lp-group {
+    margin-bottom: 14px;
+  }
+
+  #layout-props .lp-group label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #6c7086;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+    display: block;
+  }
+
+  #layout-props .lp-group input[type="text"],
+  #layout-props .lp-group input[type="number"] {
+    width: 100%;
+    padding: 6px 8px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 4px;
+    color: #cdd6f4;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    transition: var(--transition);
+  }
+
+  #layout-props .lp-group input[type="text"]:focus,
+  #layout-props .lp-group input[type="number"]:focus {
+    border-color: #89b4fa;
+    box-shadow: 0 0 0 1px rgba(137,180,250,0.3);
+  }
+
+  #layout-props .lp-group input[type="color"] {
+    width: 32px;
+    height: 28px;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  #layout-props .lp-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  #layout-props .lp-row .lp-group {
+    flex: 1;
+  }
+
+  .lp-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: #a6adc8;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin: 16px 0 8px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .lp-delete-btn {
+    width: 100%;
+    padding: 8px;
+    background: rgba(243,139,168,0.1);
+    border: 1px solid rgba(243,139,168,0.2);
+    border-radius: 6px;
+    color: #f38ba8;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+    margin-top: 12px;
+  }
+
+  .lp-delete-btn:hover {
+    background: rgba(243,139,168,0.2);
+  }
+
+  .lp-select {
+    width: 100%;
+    padding: 6px 8px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 4px;
+    color: #cdd6f4;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -1215,6 +1626,9 @@
         <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
       </div>
       <div class="logo-title">Interactive Map Maker</div>
+    </div>
+    <div class="sidebar-mode-row">
+      <button id="toggleLayoutMode" class="btn-mode-switch">Layout Mode</button>
     </div>
   </div>
 
@@ -1284,6 +1698,14 @@
           </div>
         </div>
         <div style="margin-top:12px;">
+          <div style="font-size:11px; font-weight:600; color:var(--text-secondary); margin-bottom:6px;">Map Rotation</div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="range" id="mapRotationSlider" min="0" max="360" value="0" style="flex:1; height:4px; accent-color:var(--accent);" />
+            <input type="number" id="mapRotationInput" min="0" max="360" value="0" step="1" style="width:52px; padding:3px 5px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:4px; color:var(--text-primary); font-size:11px; text-align:center;" />
+            <span style="font-size:11px; color:var(--text-muted);">&deg;</span>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
           <div style="font-size:11px; font-weight:500; color:var(--text-muted); margin-bottom:2px;">Projection</div>
           <div style="font-size:12px; color:var(--text-primary);">EPSG:3857 (Web Mercator)</div>
         </div>
@@ -1328,6 +1750,8 @@
   </div>
 </div>
 
+<div id="map-mode">
+
 <div id="map-wrap">
   <div id="map"></div>
   <div class="ctx-menu" id="ctxMenu"></div>
@@ -1342,11 +1766,55 @@
   </div>
 </div>
 
+</div>
+
+<div id="layout-container">
+  <div id="layout-toolbar">
+    <button class="ltb-btn" data-tool="select">&#x2196; Select</button>
+    <button class="ltb-btn" data-tool="map-frame">&#x1F5FA; Map Frame</button>
+    <button class="ltb-btn" data-tool="box">&#x25A1; Box</button>
+    <button class="ltb-btn" data-tool="text">T Text</button>
+    <button class="ltb-btn" data-tool="picture">&#x1F5BC; Picture</button>
+    <button class="ltb-btn" data-tool="scale-bar">&#x2015; Scale Bar</button>
+    <button class="ltb-btn" data-tool="legend">&#x2630; Legend</button>
+    <button class="ltb-btn" data-tool="north-arrow">&uarr; North Arrow</button>
+    <span class="ltb-sep"></span>
+    <button class="ltb-export-btn" id="layoutExportPNG">Export PNG</button>
+    <button class="ltb-export-btn" id="layoutExportPDF">Export PDF</button>
+    <span class="ltb-sep"></span>
+    <button class="ltb-back-btn" id="layoutBackBtn">&larr; Back to Map</button>
+  </div>
+  <div id="layout-work">
+    <div id="layout-canvas-wrap">
+      <div id="layout-canvas"></div>
+    </div>
+    <div id="layout-props">
+      <h3>Properties</h3>
+      <div class="lp-empty">Select an element on the canvas to edit its properties</div>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
 <script src="https://unpkg.com/shpjs/dist/shp.js"></script>
-<script src="app.js"></script>
+<script src="js/config.js"></script>
+<script src="js/state.js"></script>
+<script src="js/helpers.js"></script>
+<script src="js/selection.js"></script>
+<script src="js/classification.js"></script>
+<script src="js/layer.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/attribute-table.js"></script>
+<script src="js/dialogs.js"></script>
+<script src="js/search-control.js"></script>
+<script src="js/project.js"></script>
+<script src="js/export-html.js"></script>
+<script src="js/main.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="js/layout-mode.js"></script>
 
 </body>
 </html>
