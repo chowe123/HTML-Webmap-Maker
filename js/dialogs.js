@@ -114,12 +114,13 @@ function openFilterEditor(layer) {
             '<div class="fe-value-wrap" style="margin-bottom:12px;display:' + (hideValue ? 'none' : 'block') + ';"><label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Value</label><input type="text" class="fe-value" value="' + escapeHtml(layer.filterValue || '') + '" placeholder="e.g. Residential" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;" /></div>',
           '</div>',
           '<div class="fe-advanced" style="display:' + (isAdvanced ? 'block' : 'none') + ';">',
-            '<div style="margin-bottom:6px;"><label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Fields</label><div class="fe-field-pills" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">' +
+            '<div style="margin-bottom:8px;"><label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Insert field</label><select class="fe-field-insert" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">' +
+              '<option value="">-- select field --</option>' +
               (layer.fields || []).map(function(f) {
                 var safe = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(f) ? 'p.' + f : 'p[' + JSON.stringify(f) + ']';
-                return '<span data-insert="' + escapeHtml(safe) + '" style="display:inline-block;padding:3px 8px;background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-size:11px;font-family:monospace;cursor:pointer;white-space:nowrap;">' + escapeHtml(f) + '</span>';
-              }).join('') || '<span style="font-size:10px;color:var(--text-muted);">No fields available</span>' +
-            '</div></div>',
+                return '<option value="' + escapeHtml(safe) + '">' + escapeHtml(f) + '</option>';
+              }).join('') +
+            '</select></div>',
             '<div style="margin-bottom:8px;"><label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">JavaScript expression</label><textarea class="fe-expression" rows="5" placeholder="e.g. p.ZONING === &#39;Residential&#39; &amp;&amp; p.ACRES &gt; 10" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:&#39;Courier New&#39;,monospace;outline:none;resize:vertical;box-sizing:border-box;">' + escapeHtml(layer.filterExpression || '') + '</textarea></div>',
             '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-bottom:4px;">Use <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;">p</code> for the feature properties object. Click a field above to insert.</div>',
             '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;">Examples:<div style="margin-top:4px;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;white-space:pre-wrap;">p.ZONING === \'Residential\'<br/>p.ACRES &gt; 10<br/>p.TYPE !== \'Excluded\' &amp;&amp; p.VALUE &gt;= 100<br/>Number(p.YEAR) &gt; 2000 || p.STATUS === \'Active\'</div></div>',
@@ -143,17 +144,19 @@ function openFilterEditor(layer) {
     });
   });
 
-  overlay.querySelectorAll('.fe-field-pills span[data-insert]').forEach(function(pill) {
-    pill.addEventListener('click', function() {
+  var feFieldInsert = overlay.querySelector('.fe-field-insert');
+  if (feFieldInsert) {
+    feFieldInsert.addEventListener('change', function() {
       var ta = overlay.querySelector('.fe-expression');
-      if (!ta) return;
-      var insert = pill.dataset.insert;
+      if (!ta || !feFieldInsert.value) return;
+      var insert = feFieldInsert.value;
       var start = ta.selectionStart, end = ta.selectionEnd;
       ta.value = ta.value.substring(0, start) + insert + ta.value.substring(end);
       ta.selectionStart = ta.selectionEnd = start + insert.length;
       ta.focus();
+      feFieldInsert.value = '';
     });
-  });
+  }
 
   var enabledEl = overlay.querySelector('.fe-enabled');
   var settingsEl = overlay.querySelector('.fe-settings');
@@ -229,12 +232,13 @@ function openSelectByAttribute(layer) {
           '<div class="sba-value-wrap" style="margin-bottom:12px;"><label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Value</label><input type="text" class="sba-value" value="" placeholder="e.g. Residential" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;" /></div>',
         '</div>',
         '<div class="sba-advanced" style="display:none;">',
-          '<div style="margin-bottom:6px;"><label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Fields</label><div class="sba-field-pills" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">' +
+          '<div style="margin-bottom:8px;"><label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Insert field</label><select class="sba-field-insert" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">' +
+            '<option value="">-- select field --</option>' +
             (layer.fields || []).map(function(f) {
               var safe = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(f) ? 'p.' + f : 'p[' + JSON.stringify(f) + ']';
-              return '<span data-insert="' + escapeHtml(safe) + '" style="display:inline-block;padding:3px 8px;background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-size:11px;font-family:monospace;cursor:pointer;white-space:nowrap;">' + escapeHtml(f) + '</span>';
-            }).join('') || '<span style="font-size:10px;color:var(--text-muted);">No fields available</span>' +
-          '</div></div>',
+              return '<option value="' + escapeHtml(safe) + '">' + escapeHtml(f) + '</option>';
+            }).join('') +
+          '</select></div>',
           '<div style="margin-bottom:8px;"><label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">JavaScript expression</label><textarea class="sba-expression" rows="5" placeholder="e.g. p.ZONING === &#39;Residential&#39; &amp;&amp; p.ACRES &gt; 10" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:&#39;Courier New&#39;,monospace;outline:none;resize:vertical;box-sizing:border-box;"></textarea></div>',
           '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-bottom:4px;">Use <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;">p</code> for the feature properties object. Click a field above to insert.</div>',
           '<div style="font-size:10px;color:var(--text-muted);line-height:1.5;">Examples:<div style="margin-top:4px;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;white-space:pre-wrap;">p.ZONING === \'Residential\'<br/>p.ACRES &gt; 10<br/>p.TYPE !== \'Excluded\' &amp;&amp; p.VALUE &gt;= 100<br/>Number(p.YEAR) &gt; 2000 || p.STATUS === \'Active\'</div></div>',
@@ -249,7 +253,8 @@ function openSelectByAttribute(layer) {
 
   overlay.querySelectorAll('.sba-mode-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
-      overlay.querySelectorAll('.sba-mode-btn').forEach(function(b) { b.style.background = 'transparent'; b.style.color = 'var(--text-muted)'; });
+      overlay.querySelectorAll('.sba-mode-btn').forEach(function(b) { b.classList.remove('sba-active'); b.style.background = 'transparent'; b.style.color = 'var(--text-muted)'; });
+      btn.classList.add('sba-active');
       btn.style.background = 'var(--accent)'; btn.style.color = '#fff';
       var mode = btn.dataset.mode;
       overlay.querySelector('.sba-simple').style.display = mode === 'simple' ? 'block' : 'none';
@@ -257,17 +262,19 @@ function openSelectByAttribute(layer) {
     });
   });
 
-  overlay.querySelectorAll('.sba-field-pills span[data-insert]').forEach(function(pill) {
-    pill.addEventListener('click', function() {
+  var fieldInsertSelect = overlay.querySelector('.sba-field-insert');
+  if (fieldInsertSelect) {
+    fieldInsertSelect.addEventListener('change', function() {
       var ta = overlay.querySelector('.sba-expression');
-      if (!ta) return;
-      var insert = pill.dataset.insert;
+      if (!ta || !fieldInsertSelect.value) return;
+      var insert = fieldInsertSelect.value;
       var start = ta.selectionStart, end = ta.selectionEnd;
       ta.value = ta.value.substring(0, start) + insert + ta.value.substring(end);
       ta.selectionStart = ta.selectionEnd = start + insert.length;
       ta.focus();
+      fieldInsertSelect.value = '';
     });
-  });
+  }
 
   var opEl = overlay.querySelector('.sba-op');
   var valueWrap = overlay.querySelector('.sba-value-wrap');
@@ -277,7 +284,7 @@ function openSelectByAttribute(layer) {
   overlay.querySelector('.sba-cancel-btn').addEventListener('click', closeSelectByAttribute);
   overlay.querySelector('.sba-apply-btn').addEventListener('click', function() {
     var activeMode = 'simple';
-    overlay.querySelectorAll('.sba-mode-btn').forEach(function(b) { if (b.style.background === 'var(--accent)') activeMode = b.dataset.mode; });
+    overlay.querySelectorAll('.sba-mode-btn').forEach(function(b) { if (b.classList.contains('sba-active')) activeMode = b.dataset.mode; });
     var features = layer.geojson.features || (layer.geojson.type === 'Feature' ? [layer.geojson] : []);
     var matched = [];
     if (activeMode === 'advanced') {
@@ -673,6 +680,190 @@ function openCategorySymbolEditor(layer, catKey) {
       if (btn.dataset.shape !== 'custom') {
         const st = btn.dataset.shape;
         btn.innerHTML = buildPointSymbolHtml(st, curColor, curStrokeColor, 6, curStrokeWidth) + '<span style="font-size:7px;margin-top:2px;color:var(--text-secondary,#94a3b8)">' + (SYMBOL_SHAPES.find(s => s.id === st)?.label || st) + '</span>';
+      }
+    });
+  }
+
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  updatePreview();
+  updateCustomRow();
+}
+
+// ========================
+// LAYER SYMBOL EDITOR
+// ========================
+
+function closeLayerSymbolEditor() {
+  const overlay = document.getElementById('layer-sym-editor-overlay');
+  if (overlay) { overlay.remove(); renderUI(); }
+}
+
+function openLayerSymbolEditor(layer) {
+  closeLayerSymbolEditor();
+
+  let curType = layer.pointSymbolType || 'circle';
+  let curSize = layer.pointSize ?? 10;
+  let curStrokeColor = layer.pointStrokeColor || '#ffffff';
+  let curStrokeWidth = layer.pointStrokeWidth ?? 2;
+  let curCustomUrl = layer.customSymbolUrl || '';
+
+  function applySettings() {
+    layer.pointSymbolType = curType;
+    layer.pointSize = curSize;
+    layer.pointStrokeColor = curStrokeColor;
+    layer.pointStrokeWidth = curStrokeWidth;
+    layer.customSymbolUrl = curCustomUrl || '';
+    rebuildLeafletLayer(layer, { renderUI: false });
+  }
+
+  function updatePreview() {
+    const container = overlay.querySelector('.lsym-preview-main');
+    container.innerHTML = '';
+    if (curType === 'custom' && curCustomUrl) {
+      const img = document.createElement('img'); img.src = curCustomUrl;
+      img.style.cssText = 'max-width:80px;max-height:80px;object-fit:contain;border-radius:4px;';
+      container.appendChild(img);
+    } else {
+      const type = curType === 'custom' ? 'circle' : curType;
+      container.innerHTML = buildPointSymbolHtml(type, layer.color, curStrokeColor, Math.max(6, curSize / 2), curStrokeWidth);
+    }
+  }
+
+  function updateCustomRow() {
+    customRow.style.display = curType === 'custom' ? 'block' : 'none';
+    sizeRow.style.display = curType === 'custom' ? 'none' : 'flex';
+    scRow.style.display = curType === 'custom' ? 'none' : 'flex';
+  }
+
+  function openFilePicker() {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = () => {
+      const file = inp.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => { curCustomUrl = e.target.result; applySettings(); updatePreview(); updateCustomRow(); };
+      reader.readAsDataURL(file);
+    };
+    inp.click();
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'layer-sym-editor-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;';
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeLayerSymbolEditor(); });
+
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--panel-bg,#1e293b);border:1px solid var(--border-color,#334155);border-radius:12px;padding:20px;max-width:420px;width:90%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;';
+  const title = document.createElement('div');
+  title.style.cssText = 'font-weight:600;font-size:14px;color:var(--text-primary,#e2e8f0);';
+  title.textContent = 'Point Symbol';
+  header.appendChild(title);
+  const closeBtn = document.createElement('button');
+  closeBtn.innerHTML = '\u2715';
+  closeBtn.style.cssText = 'background:none;border:none;color:var(--text-secondary,#94a3b8);font-size:18px;cursor:pointer;padding:2px 6px;border-radius:4px;';
+  closeBtn.addEventListener('click', closeLayerSymbolEditor);
+  closeBtn.addEventListener('mouseenter', () => closeBtn.style.background = 'rgba(255,255,255,0.1)');
+  closeBtn.addEventListener('mouseleave', () => closeBtn.style.background = 'none');
+  header.appendChild(closeBtn);
+  panel.appendChild(header);
+
+  const previewRow = document.createElement('div');
+  previewRow.style.cssText = 'display:flex;justify-content:center;margin-bottom:16px;';
+  const previewMain = document.createElement('div');
+  previewMain.className = 'lsym-preview-main';
+  previewMain.style.cssText = 'display:flex;align-items:center;justify-content:center;width:90px;height:90px;background:rgba(0,0,0,0.3);border-radius:8px;border:1px solid var(--border-color,#334155);';
+  previewRow.appendChild(previewMain);
+  panel.appendChild(previewRow);
+
+  const shapeLabel = document.createElement('div');
+  shapeLabel.style.cssText = 'font-size:12px;color:var(--text-secondary,#94a3b8);margin-bottom:6px;';
+  shapeLabel.textContent = 'Shape';
+  panel.appendChild(shapeLabel);
+
+  const shapeGrid = document.createElement('div');
+  shapeGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:4px;margin-bottom:14px;';
+  SYMBOL_SHAPES.forEach(sh => {
+    const btn = document.createElement('button');
+    btn.dataset.shape = sh.id; btn.title = sh.label;
+    btn.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 2px;cursor:pointer;border:2px solid transparent;border-radius:6px;background:rgba(15,23,42,0.6);transition:all 0.15s;';
+    if (sh.id === curType) btn.style.borderColor = '#3b82f6';
+    if (sh.id === 'custom') {
+      btn.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><span style="font-size:7px;margin-top:2px;color:var(--text-secondary,#94a3b8)">Image</span>';
+    } else {
+      btn.innerHTML = buildPointSymbolHtml(sh.id, layer.color, curStrokeColor, 6, curStrokeWidth) + '<span style="font-size:7px;margin-top:2px;color:var(--text-secondary,#94a3b8)">' + sh.label + '</span>';
+    }
+    btn.addEventListener('click', () => {
+      shapeGrid.querySelectorAll('button').forEach(b => b.style.borderColor = 'transparent');
+      btn.style.borderColor = '#3b82f6'; curType = sh.id; updateCustomRow(); applySettings(); updatePreview();
+    });
+    shapeGrid.appendChild(btn);
+  });
+  panel.appendChild(shapeGrid);
+
+  const customRow = document.createElement('div');
+  customRow.style.cssText = 'margin-bottom:14px;';
+  const customLabel = document.createElement('div');
+  customLabel.style.cssText = 'font-size:12px;color:var(--text-secondary,#94a3b8);margin-bottom:6px;';
+  customLabel.textContent = 'Custom Image';
+  customRow.appendChild(customLabel);
+  const customBtn = document.createElement('button');
+  customBtn.textContent = curCustomUrl ? 'Change Image...' : 'Choose Image...';
+  customBtn.style.cssText = 'padding:6px 12px;font-size:11px;background:rgba(59,130,246,0.15);color:var(--accent,#60a5fa);border:1px solid rgba(59,130,246,0.3);border-radius:6px;cursor:pointer;';
+  customBtn.addEventListener('click', openFilePicker);
+  customRow.appendChild(customBtn);
+  if (curCustomUrl) {
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = 'Clear';
+    clearBtn.style.cssText = 'padding:6px 12px;font-size:11px;margin-left:8px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;cursor:pointer;';
+    clearBtn.addEventListener('click', () => { curCustomUrl = ''; applySettings(); updatePreview(); updateCustomRow(); });
+    customRow.appendChild(clearBtn);
+  }
+  panel.appendChild(customRow);
+
+  const sizeRow = document.createElement('div');
+  sizeRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:12px;';
+  const sizeLabelEl = document.createElement('label'); sizeLabelEl.style.cssText = 'font-size:12px;color:var(--text-secondary,#94a3b8);flex-shrink:0;'; sizeLabelEl.textContent = 'Size';
+  sizeRow.appendChild(sizeLabelEl);
+  const sizeSlider = document.createElement('input');
+  sizeSlider.type = 'range'; sizeSlider.min = 4; sizeSlider.max = 48; sizeSlider.value = curSize;
+  sizeSlider.style.cssText = 'flex:1;accent-color:#3b82f6;';
+  sizeSlider.addEventListener('input', () => { curSize = parseInt(sizeSlider.value); sizeVal.textContent = curSize + 'px'; applySettings(); updatePreview(); });
+  sizeRow.appendChild(sizeSlider);
+  const sizeVal = document.createElement('span');
+  sizeVal.style.cssText = 'font-size:12px;color:var(--text-primary,#e2e8f0);min-width:32px;text-align:right;';
+  sizeVal.textContent = curSize + 'px';
+  sizeRow.appendChild(sizeVal);
+  panel.appendChild(sizeRow);
+
+  const scRow = document.createElement('div');
+  scRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:12px;';
+  const scLabel = document.createElement('label'); scLabel.style.cssText = 'font-size:12px;color:var(--text-secondary,#94a3b8);flex-shrink:0;'; scLabel.textContent = 'Stroke';
+  scRow.appendChild(scLabel);
+  const scPicker = document.createElement('input');
+  scPicker.type = 'color'; scPicker.value = curStrokeColor;
+  scPicker.style.cssText = 'width:32px;height:28px;border:0;padding:0;background:none;cursor:pointer;';
+  scPicker.addEventListener('input', () => { curStrokeColor = scPicker.value; applySettings(); updatePreview(); updateShapeGridColors(); });
+  scRow.appendChild(scPicker);
+  const swSlider = document.createElement('input');
+  swSlider.type = 'range'; swSlider.min = 0; swSlider.max = 6; swSlider.step = 0.5; swSlider.value = curStrokeWidth;
+  swSlider.style.cssText = 'flex:1;accent-color:#3b82f6;';
+  swSlider.addEventListener('input', () => { curStrokeWidth = parseFloat(swSlider.value); swVal.textContent = curStrokeWidth + 'px'; applySettings(); updatePreview(); updateShapeGridColors(); });
+  scRow.appendChild(swSlider);
+  const swVal = document.createElement('span');
+  swVal.style.cssText = 'font-size:12px;color:var(--text-primary,#e2e8f0);min-width:32px;text-align:right;';
+  swVal.textContent = curStrokeWidth + 'px';
+  scRow.appendChild(swVal);
+  panel.appendChild(scRow);
+
+  function updateShapeGridColors() {
+    shapeGrid.querySelectorAll('button').forEach(btn => {
+      if (btn.dataset.shape !== 'custom') {
+        const st = btn.dataset.shape;
+        btn.innerHTML = buildPointSymbolHtml(st, layer.color, curStrokeColor, 6, curStrokeWidth) + '<span style="font-size:7px;margin-top:2px;color:var(--text-secondary,#94a3b8)">' + (SYMBOL_SHAPES.find(s => s.id === st)?.label || st) + '</span>';
       }
     });
   }

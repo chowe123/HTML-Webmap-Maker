@@ -16,4 +16,3 @@ const styleRefreshRaf = new Map();
 
 let currentBasemap = 'none';
 let tileLayer = null;
-let mapRotation = 0;

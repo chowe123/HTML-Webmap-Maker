@@ -40,7 +40,7 @@ function handleFile(e) {
 function getLayerExportPayload(l) {
   return {
     id: l.id, name: l.name, geojson: l.geojson, color: l.color, strokeColor: l.strokeColor || l.color,
-    weight: l.weight, opacity: l.opacity ?? 0.4, noFill: l.noFill || false,
+      weight: l.weight, opacity: l.opacity ?? 0.4,
     pointSymbolType: l.pointSymbolType || 'circle', pointSize: l.pointSize ?? 10,
     pointStrokeColor: l.pointStrokeColor || null, pointStrokeWidth: l.pointStrokeWidth ?? 2,
     customSymbolUrl: l.customSymbolUrl || null, popupEnabled: l.popupEnabled !== false,
@@ -54,7 +54,7 @@ function getLayerExportPayload(l) {
     labelSize: l.labelSize || 12, labelColor: l.labelColor || '#ffffff',
     labelStrokeColor: l.labelStrokeColor || '#000000', labelStrokeWidth: l.labelStrokeWidth ?? 2,
     colorRamp: l.colorRamp || '', colorRampReversed: l.colorRampReversed || false,
-    customCategoryLabels: l.customCategoryLabels || {}, hiddenCatKeys: l.hiddenCatKeys || [],
+    customCategoryLabels: l.customCategoryLabels || {}, categoryNoFill: l.categoryNoFill || {}, categoryStroke: l.categoryStroke || {}, hiddenCatKeys: l.hiddenCatKeys || [],
     showLegend: l.showLegend !== false, filterEnabled: l.filterEnabled !== false,
     filterMode: l.filterMode === 'advanced' ? 'advanced' : 'simple', filterField: l.filterField || '',
     filterOp: l.filterOp || 'equals', filterValue: l.filterValue || '', filterExpression: l.filterExpression || ''
@@ -65,7 +65,7 @@ function getProjectSnapshot() {
   syncProjectMetaFromUI();
   const center = map.getCenter();
   return {
-    version: PROJECT_VERSION, title: projectTitle, dataNote, basemap: currentBasemap, searchMode, rotation: mapRotation,
+    version: PROJECT_VERSION, title: projectTitle, dataNote, basemap: currentBasemap, searchMode,
     mapView: { lat: center.lat, lng: center.lng, zoom: map.getZoom() },
     layerCounter, layers: layerStore.map(getLayerExportPayload)
   };
@@ -74,6 +74,7 @@ function getProjectSnapshot() {
 function clearAllLayers() {
   layerStore.forEach(layer => { map.removeLayer(layer.leafletLayer); });
   layerStore = [];
+  if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
 }
 
 function loadProjectSnapshot(snapshot) {
@@ -88,7 +89,7 @@ function loadProjectSnapshot(snapshot) {
     createLayer({
       id: layerData.id, name: layerData.name, geojson: layerData.geojson, color: layerData.color,
       strokeColor: layerData.strokeColor || layerData.color, weight: layerData.weight,
-      opacity: layerData.opacity ?? 0.4, noFill: layerData.noFill || false,
+      opacity: layerData.opacity ?? 0.4,
       pointSymbolType: layerData.pointSymbolType || 'circle', pointSize: layerData.pointSize ?? 10,
       pointStrokeColor: layerData.pointStrokeColor || null, pointStrokeWidth: layerData.pointStrokeWidth ?? 2,
       customSymbolUrl: layerData.customSymbolUrl || null, popupEnabled: layerData.popupEnabled !== false,
@@ -104,7 +105,9 @@ function loadProjectSnapshot(snapshot) {
       labelColor: layerData.labelColor || '#ffffff', labelStrokeColor: layerData.labelStrokeColor || '#000000',
       labelStrokeWidth: layerData.labelStrokeWidth ?? 2, colorRamp: layerData.colorRamp || '',
       colorRampReversed: layerData.colorRampReversed || false,
-      customCategoryLabels: layerData.customCategoryLabels || {}, hiddenCatKeys: layerData.hiddenCatKeys || [],
+      customCategoryLabels: layerData.customCategoryLabels || {}, categoryNoFill: layerData.categoryNoFill || {},
+      categoryStroke: layerData.categoryStroke || {},
+      hiddenCatKeys: layerData.hiddenCatKeys || [], categoryNoFill: layerData.categoryNoFill || {},
       showLegend: layerData.showLegend !== false, filterEnabled: layerData.filterEnabled !== false,
       filterMode: layerData.filterMode === 'advanced' ? 'advanced' : 'simple',
       filterField: layerData.filterField || '', filterOp: layerData.filterOp || 'equals',
@@ -119,12 +122,6 @@ function loadProjectSnapshot(snapshot) {
     document.querySelectorAll('.basemap-option').forEach(el => el.classList.remove('active'));
     const lbl = document.querySelector(`.basemap-option[data-basemap="${snapshot.basemap}"]`);
     if (lbl) lbl.classList.add('active');
-  }
-
-  if (snapshot.rotation) {
-    setMapRotation(snapshot.rotation);
-    document.getElementById('mapRotationSlider').value = snapshot.rotation;
-    document.getElementById('mapRotationInput').value = snapshot.rotation;
   }
 
   if (snapshot.searchMode) {
@@ -194,11 +191,13 @@ function exportLayerGeoJSON(layer) {
 
 function exportHTML() {
   syncProjectMetaFromUI();
+  const center = map.getCenter();
   const exportData = {
-    title: projectTitle, dataNote, searchMode, rotation: mapRotation,
+    title: projectTitle, dataNote, searchMode,
+    mapView: { lat: center.lat, lng: center.lng, zoom: map.getZoom() },
     layers: layerStore.map(l => ({
       name: l.name, geojson: l.geojson, color: l.color, strokeColor: l.strokeColor || l.color,
-      weight: l.weight, opacity: l.opacity ?? 0.4, noFill: l.noFill || false,
+    weight: l.weight, opacity: l.opacity ?? 0.4,
       pointSymbolType: l.pointSymbolType || 'circle', pointSize: l.pointSize ?? 10,
       pointStrokeColor: l.pointStrokeColor || null, pointStrokeWidth: l.pointStrokeWidth ?? 2,
       customSymbolUrl: l.customSymbolUrl || null, popupEnabled: l.popupEnabled !== false,
@@ -212,7 +211,7 @@ function exportHTML() {
       labelSize: l.labelSize || 12, labelColor: l.labelColor || '#ffffff',
       labelStrokeColor: l.labelStrokeColor || '#000000', labelStrokeWidth: l.labelStrokeWidth ?? 2,
       colorRamp: l.colorRamp || '', colorRampReversed: l.colorRampReversed || false,
-      customCategoryLabels: l.customCategoryLabels || {}
+      customCategoryLabels: l.customCategoryLabels || {}, categoryNoFill: l.categoryNoFill || {}, categoryStroke: l.categoryStroke || {}
     }))
   };
 

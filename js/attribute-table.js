@@ -1,8 +1,23 @@
+function updateAttrTableTab() {
+  var tab = document.getElementById('attr-table-tab');
+  var panel = document.getElementById('attr-table-panel');
+  if (!tab || !panel) return;
+  if (_attrTableLayer && !panel.classList.contains('expanded')) {
+    tab.textContent = 'Attribute Table \u2014 ' + _attrTableLayer.name;
+    tab.classList.add('visible');
+  } else {
+    tab.classList.remove('visible');
+  }
+}
+
 function toggleAttrTable() {
   const panel = document.getElementById('attr-table-panel');
   if (!panel) return;
   panel.classList.toggle('expanded');
-  if (!panel.classList.contains('expanded')) { _attrTableLayer = null; }
+  if (!panel.classList.contains('expanded')) {
+    panel.style.maxHeight = '';
+  }
+  updateAttrTableTab();
   setTimeout(() => { if (typeof map !== 'undefined' && map) map.invalidateSize(); }, 50);
 }
 
@@ -16,6 +31,9 @@ function setAttrTableFilter(mode) {
   _attrTableFilterMode = mode;
   if (_attrTableLayer) renderAttrTable();
 }
+
+var _attrTableVirtualState = null;
+var ROW_HEIGHT = 28;
 
 function populateAttrTable(layer) {
   _attrTableLayer = layer;
@@ -60,28 +78,81 @@ function populateAttrTable(layer) {
   filterBar += '<button class="attr-add-col-btn" title="Add column" style="font-size:14px;padding:1px 8px;border-radius:4px;border:1px solid var(--border-color);background:transparent;color:var(--text-muted);cursor:pointer;line-height:1.4;">+</button>';
   filterBar += '</div>';
 
-  var html = filterBar + '<table><thead><tr><th class="id-col">#</th>';
-  for (var fi = 0; fi < fields.length; fi++) { html += '<th data-field="' + escapeHtml(fields[fi]) + '">' + escapeHtml(fields[fi]) + '</th>'; }
-  html += '</tr></thead><tbody>';
+  var thead = '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead style="position:sticky;top:0;z-index:1;"><tr><th class="id-col">#</th>';
+  for (var fi = 0; fi < fields.length; fi++) { thead += '<th data-field="' + escapeHtml(fields[fi]) + '">' + escapeHtml(fields[fi]) + '</th>'; }
+  thead += '</tr></thead></table>';
 
-  for (var di = 0; di < displayFeatures.length; di++) {
-    var feature = displayFeatures[di];
-    var idx = displayIndices[di];
-    var props = feature.properties || {};
-    var isSel = selSet && selSet.has(idx);
-    html += '<tr class="attr-row' + (isSel ? ' attr-row-selected' : '') + '" data-fi="' + idx + '" style="cursor:pointer;">';
-    html += '<td class="id-col">' + (idx + 1) + '</td>';
-    for (var fi2 = 0; fi2 < fields.length; fi2++) {
-      var val = props[fields[fi2]] !== undefined && props[fields[fi2]] !== null ? String(props[fields[fi2]]) : '';
-      html += '<td><input class="cell-input" type="text" value="' + escapeHtml(val) + '" data-fi="' + idx + '" data-field="' + escapeHtml(fields[fi2]) + '" /></td>';
-    }
-    html += '</tr>';
-  }
-  html += '</tbody></table>';
+  var totalH = displayFeatures.length * ROW_HEIGHT;
+  var tableBody = panel.querySelector('.attr-table-body');
+  tableBody.innerHTML = filterBar + '<div class="attr-virtual-scroll" style="overflow:auto;flex:1;min-height:0;position:relative;">' + thead + '<div class="attr-virtual-spacer" style="height:' + totalH + 'px;position:relative;"></div></div>';
+  var scrollContainer = tableBody.querySelector('.attr-virtual-scroll');
+  var spacer = tableBody.querySelector('.attr-virtual-spacer');
 
-  panel.querySelector('.attr-table-body').innerHTML = html;
   panel.querySelector('.attr-table-layer-name').textContent = layer.name;
   panel.querySelector('.feature-count').textContent = totalCount + ' feature' + (totalCount === 1 ? '' : 's');
+  updateAttrTableTab();
+
+  _attrTableVirtualState = { layer: layer, displayFeatures: displayFeatures, displayIndices: displayIndices, fields: fields, selSet: selSet, spacer: spacer, scrollContainer: scrollContainer };
+
+  function renderVisibleRows() {
+    if (!_attrTableVirtualState) return;
+    var scrollTop = scrollContainer.scrollTop;
+    var viewH = scrollContainer.clientHeight;
+    var startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 5);
+    var endIdx = Math.min(displayFeatures.length, Math.ceil((scrollTop + viewH) / ROW_HEIGHT) + 5);
+    var frag = document.createDocumentFragment();
+    for (var di = startIdx; di < endIdx; di++) {
+      var feature = displayFeatures[di];
+      var idx = displayIndices[di];
+      var props = feature.properties || {};
+      var isSel = selSet && selSet.has(idx);
+      var tr = document.createElement('tr');
+      tr.className = 'attr-row' + (isSel ? ' attr-row-selected' : '');
+      tr.dataset.fi = idx;
+      tr.style.cssText = 'cursor:pointer;height:' + ROW_HEIGHT + 'px;';
+      var tdId = document.createElement('td');
+      tdId.className = 'id-col';
+      tdId.textContent = idx + 1;
+      tr.appendChild(tdId);
+      for (var fi2 = 0; fi2 < fields.length; fi2++) {
+        var val = props[fields[fi2]] !== undefined && props[fields[fi2]] !== null ? String(props[fields[fi2]]) : '';
+        var td = document.createElement('td');
+        var inp = document.createElement('input');
+        inp.className = 'cell-input';
+        inp.type = 'text';
+        inp.value = val;
+        inp.dataset.fi = idx;
+        inp.dataset.field = fields[fi2];
+        td.appendChild(inp);
+        tr.appendChild(td);
+      }
+      frag.appendChild(tr);
+    }
+    spacer.innerHTML = '';
+    spacer.appendChild(frag);
+
+    spacer.querySelectorAll('.attr-row').forEach(function(row) {
+      row.addEventListener('click', function(e) {
+        var fi = parseInt(this.dataset.fi, 10);
+        if (e.ctrlKey) { toggleSelection(layer.id, fi); } else { selectOne(layer.id, fi); }
+      });
+    });
+
+    spacer.querySelectorAll('.cell-input').forEach(function(inp) {
+      inp.addEventListener('change', function() {
+        var fi = parseInt(this.dataset.fi, 10);
+        var field = this.dataset.field;
+        var raw = this.value;
+        var props = displayFeatures[fi] && displayFeatures[fi].properties;
+        if (props) { var prev = props[field]; props[field] = raw;
+          if (String(prev) !== String(raw)) { rebuildLeafletLayer(layer, { renderUI: false }); }
+        }
+      });
+    });
+  }
+
+  scrollContainer.addEventListener('scroll', function() { requestAnimationFrame(renderVisibleRows); });
+  renderVisibleRows();
 
   setTimeout(function() { if (typeof map !== 'undefined' && map) map.invalidateSize(); }, 60);
 
@@ -89,23 +160,21 @@ function populateAttrTable(layer) {
   var clearBtn = panel.querySelector('.attr-clear-btn');
   if (clearBtn) { clearBtn.addEventListener('click', function() { clearSelection(); }); }
 
-  panel.querySelectorAll('.attr-row').forEach(function(row) {
-    row.addEventListener('click', function(e) {
-      var fi = parseInt(this.dataset.fi, 10);
-      if (e.ctrlKey) { toggleSelection(layer.id, fi); } else { selectOne(layer.id, fi); }
-    });
-  });
-
   var tableBody = panel.querySelector('.attr-table-body');
   if (tableBody) {
-    tableBody.addEventListener('contextmenu', function(e) {
-      e.preventDefault();
-      var selCount = getSelectedCount(layer.id);
-      var items = [];
-      if (selCount > 0) { items.push({ action: 'delete-selected', icon: '🗑', label: 'Delete Selected (' + selCount + ')', handler: function() { deleteSelectedFeatures(layer); } }); items.push({ separator: true }); }
-      items.push({ action: 'clear-selection', icon: '✕', label: 'Clear Selection', handler: function() { clearSelection(); } });
-      showCtxMenu(items, e.clientX, e.clientY);
-    });
+    if (!tableBody._ctxBound) {
+      tableBody._ctxBound = true;
+      tableBody.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        var layer = _attrTableLayer;
+        if (!layer) return;
+        var selCount = getSelectedCount(layer.id);
+        var items = [];
+        if (selCount > 0) { items.push({ action: 'delete-selected', icon: '🗑', label: 'Delete Selected (' + selCount + ')', handler: function() { deleteSelectedFeatures(layer); } }); items.push({ separator: true }); }
+        items.push({ action: 'clear-selection', icon: '✕', label: 'Clear Selection', handler: function() { clearSelection(); } });
+        showCtxMenu(items, e.clientX, e.clientY);
+      });
+    }
   }
 
   panel.querySelectorAll('.cell-input').forEach(function(inp) {
@@ -190,14 +259,15 @@ function openCalculateColumn(layer, targetField) {
           '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Target column</label>',
           '<select class="calc-target-field" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">' + (fieldOpts || '<option value="">No fields</option>') + '</select>',
         '</div>',
-        '<div style="margin-bottom:6px;">',
-          '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Fields</label>',
-          '<div class="calc-field-pills" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">',
+        '<div style="margin-bottom:8px;">',
+          '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Insert field</label>',
+          '<select class="calc-field-insert" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;">',
+            '<option value="">-- select field --</option>',
             (layer.fields || []).map(function(f) {
               var safe = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(f) ? 'p.' + f : 'p[' + JSON.stringify(f) + ']';
-              return '<span data-insert="' + escapeHtml(safe) + '" style="display:inline-block;padding:3px 8px;background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);border-radius:4px;font-size:11px;font-family:monospace;cursor:pointer;white-space:nowrap;">' + escapeHtml(f) + '</span>';
-            }).join('') || '<span style="font-size:10px;color:var(--text-muted);">No fields available</span>',
-          '</div>',
+              return '<option value="' + escapeHtml(safe) + '">' + escapeHtml(f) + '</option>';
+            }).join(''),
+          '</select>',
         '</div>',
         '<div style="margin-bottom:8px;">',
           '<label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">JavaScript expression</label>',
@@ -213,17 +283,19 @@ function openCalculateColumn(layer, targetField) {
     '</div>'
   ].join('');
 
-  overlay.querySelectorAll('.calc-field-pills span[data-insert]').forEach(function(pill) {
-    pill.addEventListener('click', function() {
+  var calcFieldInsert = overlay.querySelector('.calc-field-insert');
+  if (calcFieldInsert) {
+    calcFieldInsert.addEventListener('change', function() {
       var ta = overlay.querySelector('.calc-expression');
-      if (!ta) return;
-      var insert = pill.dataset.insert;
+      if (!ta || !calcFieldInsert.value) return;
+      var insert = calcFieldInsert.value;
       var start = ta.selectionStart, end = ta.selectionEnd;
       ta.value = ta.value.substring(0, start) + insert + ta.value.substring(end);
       ta.selectionStart = ta.selectionEnd = start + insert.length;
       ta.focus();
+      calcFieldInsert.value = '';
     });
-  });
+  }
 
   overlay.querySelector('.calc-close').addEventListener('click', function() { overlay.remove(); });
   overlay.querySelector('.calc-cancel-btn').addEventListener('click', function() { overlay.remove(); });

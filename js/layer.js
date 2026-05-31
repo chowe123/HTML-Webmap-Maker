@@ -11,94 +11,6 @@ function setBasemap(name) {
   currentBasemap = name;
 }
 
-function setMapRotation(angle) {
-  angle = Number(angle) || 0;
-  mapRotation = angle;
-  var container = map.getContainer();
-  var rad = angle * Math.PI / 180;
-  var cosFwd = Math.cos(rad), sinFwd = Math.sin(rad);
-  var cosUn = Math.cos(-rad), sinUn = Math.sin(-rad);
-
-  // Move controls to fixed positioning so they stay on-screen and unrotated
-  var zoomCtrl = document.querySelector('.leaflet-control-zoom');
-  var searchCtrl = document.querySelector('.map-search-control');
-  var attrCtrl = document.querySelector('.leaflet-control-attribution');
-  [zoomCtrl, searchCtrl, attrCtrl].forEach(function(el) {
-    if (el) delete el._restorePos;
-  });
-  if (angle !== 0) {
-    [zoomCtrl, searchCtrl, attrCtrl].forEach(function(el) {
-      if (!el) return;
-      el._restorePos = el.style.position;
-      el.style.position = 'fixed';
-      el.style.zIndex = '1000';
-    });
-    if (zoomCtrl) { zoomCtrl.style.top = '80px'; zoomCtrl.style.left = '12px'; }
-    if (searchCtrl) { searchCtrl.style.top = '12px'; searchCtrl.style.right = '12px'; }
-    if (attrCtrl) { attrCtrl.style.bottom = '0'; attrCtrl.style.right = '0'; }
-  } else {
-    [zoomCtrl, searchCtrl, attrCtrl].forEach(function(el) {
-      if (!el) return;
-      if (el._restorePos !== undefined) { el.style.position = el._restorePos; delete el._restorePos; }
-      else { el.style.position = ''; }
-      el.style.top = ''; el.style.left = ''; el.style.right = ''; el.style.bottom = ''; el.style.zIndex = '';
-    });
-  }
-
-  if (angle !== 0) {
-    // Expand viewport so Leaflet renders tiles covering rotated corners
-    var absCos = Math.abs(Math.cos(rad)), absSin = Math.abs(Math.sin(rad));
-    container.style.transform = 'rotate(' + angle + 'deg)';
-    container.style.overflow = 'visible';
-
-    if (!map._origGetSize) map._origGetSize = map.getSize;
-    map.getSize = function() {
-      var s = map._origGetSize.call(this);
-      return L.point(Math.ceil(s.x * absCos + s.y * absSin), Math.ceil(s.x * absSin + s.y * absCos));
-    };
-
-    if (!map._origMELL) {
-      map._origMELL = map.mouseEventToLatLng;
-      map._origLLLP = map.latLngToLayerPoint;
-    }
-
-    // Use ORIGINAL container dimensions for coordinate transforms
-    var origW = container.offsetWidth, origH = container.offsetHeight;
-
-    map.mouseEventToLatLng = function(e) {
-      var rect = container.getBoundingClientRect();
-      var sCx = rect.left + rect.width / 2;
-      var sCy = rect.top + rect.height / 2;
-      var dx = e.clientX - sCx;
-      var dy = e.clientY - sCy;
-      var uDx = dx * cosUn - dy * sinUn;
-      var uDy = dx * sinUn + dy * cosUn;
-      var cPt = L.point(origW / 2 + uDx, origH / 2 + uDy);
-      var lPt = map.containerPointToLayerPoint(cPt);
-      return map.layerPointToLatLng(lPt);
-    };
-
-    map.latLngToLayerPoint = function(latlng) {
-      var pt = map._origLLLP.call(map, latlng);
-      var cx = origW / 2, cy = origH / 2;
-      var dx = pt.x - cx, dy = pt.y - cy;
-      return L.point(cx + dx * cosFwd - dy * sinFwd, cy + dx * sinFwd + dy * cosFwd);
-    };
-  } else {
-    container.style.transform = '';
-    container.style.overflow = '';
-    if (map._origGetSize) { map.getSize = map._origGetSize; delete map._origGetSize; }
-    if (map._origMELL) {
-      map.mouseEventToLatLng = map._origMELL;
-      map.latLngToLayerPoint = map._origLLLP;
-      delete map._origMELL;
-      delete map._origLLLP;
-    }
-  }
-
-  map.invalidateSize(true);
-}
-
 function getFeatureFillColor(layerObj, feature) {
   let fillColor = layerObj.color;
   if (layerObj.symbologyType === 'categorized' && layerObj.symbologyField) {
@@ -116,12 +28,27 @@ function getFeatureStyle(layerObj, feature) {
   })();
   var fillColor = getFeatureFillColor(layerObj, feature);
   var layerOpacity = layerObj.opacity ?? 0.4;
+  var fillOpacity = isSelected ? 1 : layerOpacity;
+  var strokeColor = layerObj.strokeColor ?? fillColor;
+  var strokeWeight = isSelected ? Math.max(layerObj.weight || 1, 3) : layerObj.weight;
+  var strokeOpacity = isSelected ? 1 : layerOpacity;
+  if (!isSelected && layerObj.symbologyType === 'categorized' && layerObj.symbologyField) {
+    var val = feature?.properties ? feature.properties[layerObj.symbologyField] : null;
+    var catKey = getCategoryKeyForValue(layerObj, val);
+    if (layerObj.categoryNoFill && layerObj.categoryNoFill[catKey]) fillOpacity = 0;
+    var cs = layerObj.categoryStroke && layerObj.categoryStroke[catKey];
+    if (cs) {
+      if (cs.color !== undefined && cs.color !== '') strokeColor = cs.color;
+      if (cs.width !== undefined) strokeWeight = cs.width;
+      if (cs.opacity !== undefined) strokeOpacity = cs.opacity;
+    }
+  }
   var style = {
-    color: layerObj.strokeColor ?? fillColor,
+    color: strokeColor,
     fillColor: fillColor,
-    fillOpacity: isSelected ? 1 : (layerObj.noFill ? 0 : layerOpacity),
-    opacity: isSelected ? 1 : layerOpacity,
-    weight: isSelected ? Math.max(layerObj.weight || 1, 3) : layerObj.weight
+    fillOpacity: fillOpacity,
+    opacity: strokeOpacity,
+    weight: strokeWeight
   };
   if (isSelected) style.color = '#00e5ff';
   return style;
@@ -403,7 +330,7 @@ function scheduleLayerStyleRefresh(layer, key = 'default') {
 }
 
 function createLayer({
-  name, geojson, id, color, strokeColor, weight = 2, opacity = 0.4, noFill = false,
+  name, geojson, id, color, strokeColor, weight = 2, opacity = 0.4,
   pointSymbolType = 'circle', pointSize = 10, pointStrokeColor = null, pointStrokeWidth = 2, customSymbolUrl = null,
   popupEnabled = false, popupTitle = '', popupFields = null, popupTemplate = '', popupShowLabels = true,
   visible = true, symbologyType = 'single', symbologyField = '', categories = {}, categorySymbols = {},
@@ -412,7 +339,8 @@ function createLayer({
   labelField = '', labelEnabled = false, labelFont = 'Arial', labelSize = 12, labelColor = '#ffffff',
   labelStrokeColor = '#000000', filterEnabled = false, filterMode = 'simple', filterField = '',
   filterOp = 'equals', filterValue = '', filterExpression = '', labelStrokeWidth = 2,
-  colorRamp = '', colorRampReversed = false, customCategoryLabels = {}, hiddenCatKeys = [], showLegend = true
+  colorRamp = '', colorRampReversed = false, customCategoryLabels = {}, hiddenCatKeys = [], showLegend = true,
+  categoryNoFill = {}, categoryStroke = {}
 }) {
   let layerId = id;
   if (layerId) {
@@ -423,7 +351,7 @@ function createLayer({
   const fields = extractFields(geojson);
   const layerObj = {
     id: layerId, name, geojson, leafletLayer: null, color: defaultColor, strokeColor: strokeColor || defaultColor,
-    weight, opacity: opacity ?? 0.4, noFill,
+    weight, opacity: opacity ?? 0.4,
     pointSymbolType: pointSymbolType || 'circle', pointSize: pointSize ?? 10,
     pointStrokeColor: pointStrokeColor || null, pointStrokeWidth: pointStrokeWidth ?? 2, customSymbolUrl: customSymbolUrl || null,
     popupEnabled: popupEnabled !== false, popupTitle: popupTitle || '', popupFields: popupFields === undefined ? null : popupFields,
@@ -436,7 +364,9 @@ function createLayer({
     intervals: intervals.map(i => ({ ...i })), symbologyExpanded, settingsExpanded,
     labelField, labelEnabled: !!labelField, labelFont, labelSize, labelColor, labelStrokeColor, labelStrokeWidth,
     colorRamp: colorRamp || '', colorRampReversed: colorRampReversed || false,
-    customCategoryLabels: { ...customCategoryLabels }, hiddenCatKeys: hiddenCatKeys ? [...hiddenCatKeys] : [],
+    customCategoryLabels: { ...customCategoryLabels }, categoryNoFill: { ...categoryNoFill },
+    categoryStroke: JSON.parse(JSON.stringify(categoryStroke)),
+    hiddenCatKeys: hiddenCatKeys ? [...hiddenCatKeys] : [],
     showLegend: showLegend !== false, filterEnabled: filterEnabled !== false,
     filterMode: filterMode === 'advanced' ? 'advanced' : 'simple', filterField: filterField || '',
     filterOp: filterOp || 'equals', filterValue: filterValue || '', filterExpression: filterExpression || ''
@@ -491,6 +421,11 @@ function updateStyle(id, key, value, options = {}) {
   if (key === 'classLimits') { applyLayerClassification(layer); }
   if (needsLayerRebuild(key)) {
     updateLabelStyleTag(layer);
+    if (!layerHasPoints(layer)) {
+      refreshLayerStyle(layer);
+      if (options.renderUI !== false) renderUI();
+      return;
+    }
     if (options.renderUI === false) { rebuildLeafletLayer(layer, { renderUI: false }); return; }
     rebuildLeafletLayer(layer); return;
   }
@@ -528,9 +463,8 @@ function updateCategoryColor(layerId, catKey, colorValue, options = {}) {
     if (options.renderUI === false) { rebuildLeafletLayer(layer, { renderUI: false }); return; }
     rebuildLeafletLayer(layer); return;
   }
-  if (options.renderUI === false) { scheduleLayerStyleRefresh(layer, 'category'); return; }
   refreshLayerStyle(layer);
-  renderUI();
+  if (options.renderUI !== false) renderUI();
 }
 
 function getLegendPointSwatch(layer, color, catKey) {

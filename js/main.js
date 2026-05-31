@@ -1,4 +1,4 @@
-const map = L.map('map', { crs: L.CRS.EPSG3857 }).setView([43.7, -79.4], 10);
+const map = L.map('map', { crs: L.CRS.EPSG3857, renderer: L.canvas() }).setView([43.7, -79.4], 10);
 
 map.on('click', function() { if (hasSelection()) clearSelection(); });
 map.on('contextmenu', function(e) {
@@ -15,19 +15,6 @@ document.getElementById('projectTitle').addEventListener('input', syncProjectMet
 document.getElementById('dataNote').addEventListener('input', syncProjectMetaFromUI);
 document.getElementById('fileInput').addEventListener('change', handleFile);
 
-document.getElementById('mapRotationSlider').addEventListener('input', function() {
-  var val = parseInt(this.value) || 0;
-  document.getElementById('mapRotationInput').value = val;
-  setMapRotation(val);
-});
-document.getElementById('mapRotationInput').addEventListener('input', function() {
-  var val = parseInt(this.value) || 0;
-  if (val < 0) val = 0;
-  if (val > 360) val = 360;
-  this.value = val;
-  document.getElementById('mapRotationSlider').value = val;
-  setMapRotation(val);
-});
 
 document.getElementById('basemapOptions').addEventListener('change', (e) => {
   const label = e.target.closest('.basemap-option');
@@ -75,6 +62,42 @@ window.addEventListener('beforeunload', (e) => {
 
 document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 document.querySelector('#attr-table-panel .attr-table-bar').addEventListener('click', toggleAttrTable);
+document.getElementById('attr-table-tab').addEventListener('click', function() {
+  var panel = document.getElementById('attr-table-panel');
+  if (panel && !panel.classList.contains('expanded')) {
+    panel.classList.add('expanded');
+    updateAttrTableTab();
+    if (_attrTableLayer) populateAttrTable(_attrTableLayer);
+    setTimeout(function() { if (typeof map !== 'undefined' && map) map.invalidateSize(); }, 50);
+  }
+});
+
+(function() {
+  var panel = document.getElementById('attr-table-panel');
+  var handle = panel.querySelector('.attr-resize-handle');
+  var startY, startH;
+  handle.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    handle.classList.add('drag');
+    startY = e.clientY;
+    startH = panel.offsetHeight;
+    panel.style.transition = 'none';
+    function onMove(ev) {
+      var delta = startY - ev.clientY;
+      var h = Math.max(100, Math.min(window.innerHeight * 0.7, startH + delta));
+      panel.style.maxHeight = h + 'px';
+    }
+    function onUp() {
+      handle.classList.remove('drag');
+      panel.style.transition = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+})();
 document.addEventListener('click', function(e) {
   var menu = document.getElementById('ctxMenu');
   if (menu && !menu.contains(e.target)) closeCtxMenu();

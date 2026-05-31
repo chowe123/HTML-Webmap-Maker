@@ -1047,6 +1047,34 @@
     overflow: hidden;
   }
 
+  /* ATTRIBUTE TABLE TAB */
+  #attr-table-tab {
+    display: none;
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    padding: 4px 14px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.3);
+  }
+  #attr-table-tab:hover {
+    background: rgba(255,255,255,0.06);
+    color: var(--text-primary);
+  }
+  #attr-table-tab.visible {
+    display: block;
+  }
+
   /* ATTRIBUTE TABLE PANEL */
   #attr-table-panel {
     flex-shrink: 0;
@@ -1060,6 +1088,17 @@
   }
   #attr-table-panel.expanded {
     max-height: 280px;
+  }
+  #attr-table-panel .attr-resize-handle {
+    height: 4px;
+    cursor: ns-resize;
+    background: transparent;
+    position: relative;
+    flex-shrink: 0;
+  }
+  #attr-table-panel .attr-resize-handle:hover,
+  #attr-table-panel .attr-resize-handle.dragging {
+    background: var(--accent);
   }
   #attr-table-panel .attr-table-bar {
     display: flex;
@@ -1628,7 +1667,7 @@
       <div class="logo-title">Interactive Map Maker</div>
     </div>
     <div class="sidebar-mode-row">
-      <button id="toggleLayoutMode" class="btn-mode-switch">Layout Mode</button>
+      <button id="toggleLayoutMode" class="btn-mode-switch" style="display:none;">Layout Mode</button>
     </div>
   </div>
 
@@ -1698,14 +1737,6 @@
           </div>
         </div>
         <div style="margin-top:12px;">
-          <div style="font-size:11px; font-weight:600; color:var(--text-secondary); margin-bottom:6px;">Map Rotation</div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <input type="range" id="mapRotationSlider" min="0" max="360" value="0" style="flex:1; height:4px; accent-color:var(--accent);" />
-            <input type="number" id="mapRotationInput" min="0" max="360" value="0" step="1" style="width:52px; padding:3px 5px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:4px; color:var(--text-primary); font-size:11px; text-align:center;" />
-            <span style="font-size:11px; color:var(--text-muted);">&deg;</span>
-          </div>
-        </div>
-        <div style="margin-top:12px;">
           <div style="font-size:11px; font-weight:500; color:var(--text-muted); margin-bottom:2px;">Projection</div>
           <div style="font-size:12px; color:var(--text-primary);">EPSG:3857 (Web Mercator)</div>
         </div>
@@ -1756,6 +1787,7 @@
   <div id="map"></div>
   <div class="ctx-menu" id="ctxMenu"></div>
   <div id="attr-table-panel">
+    <div class="attr-resize-handle"></div>
     <div class="attr-table-bar">
       <span class="attr-table-bar-title">Attribute Table</span>
       <span class="attr-table-layer-name"></span>
@@ -1764,6 +1796,7 @@
     </div>
     <div class="attr-table-body"></div>
   </div>
+  <div id="attr-table-tab"></div>
 </div>
 
 </div>

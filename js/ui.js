@@ -103,45 +103,14 @@ function renderUI() {
           </div>
           <div class="collapsible-content" style="display: ${layer.settingsExpanded ? 'block' : 'none'};">
             <div class="point-symbol-panel" style="display: ${layerHasPoints(layer) ? 'block' : 'none'}; margin-bottom: 8px;">
-          <div class="form-group">
-            <label>Point symbol</label>
-            <select class="point-symbol-type">
-              <option value="circle" ${(layer.pointSymbolType || 'circle') === 'circle' ? 'selected' : ''}>Circle</option>
-              <option value="square" ${layer.pointSymbolType === 'square' ? 'selected' : ''}>Square</option>
-              <option value="triangle" ${layer.pointSymbolType === 'triangle' ? 'selected' : ''}>Triangle</option>
-              <option value="custom" ${layer.pointSymbolType === 'custom' ? 'selected' : ''}>Custom image</option>
-            </select>
-          </div>
-          <div class="point-size-row" style="margin-bottom:8px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-              <label>Symbol size</label>
-              <span class="point-size-value" style="font-size:10px; color:var(--accent); font-weight:bold;">${layer.pointSize ?? 10}px</span>
-            </div>
-            <input type="range" class="point-size" min="4" max="32" value="${layer.pointSize ?? 10}" style="width:100%; accent-color:var(--accent);" />
-          </div>
-          <div class="custom-symbol-panel" style="display: ${layer.pointSymbolType === 'custom' ? 'block' : 'none'};">
-            <label style="font-size:11px;">Upload symbol image</label>
-            <div class="btn-upload-trigger custom-symbol-trigger" style="padding:12px; margin-top:4px;">
-              <span style="font-size:12px; font-weight:600;">Choose image</span>
-              <span style="font-size:10px; color:var(--text-muted); display:block; margin-top:2px;">PNG, JPG, or SVG</span>
-            </div>
-            <input type="file" class="custom-symbol-file" accept="image/*" style="display:none;" />
-            ${layer.customSymbolUrl ? `<img class="custom-symbol-preview" src="${layer.customSymbolUrl}" alt="Symbol preview" style="max-width:48px; max-height:48px; margin-top:8px; border-radius:4px; border:1px solid var(--border-color);" />` : ''}
-          </div>
-          <div class="point-stroke-controls" style="display: ${layer.pointSymbolType !== 'custom' ? 'block' : 'none'}; margin-top: 8px;">
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-              <label style="margin-bottom:0; flex:1;">Stroke color</label>
-              <input type="color" class="point-stroke-color" value="${getPointStrokeColor(layer)}" style="background:none; border:none; cursor:pointer; width:30px; height:24px;" />
-            </div>
-            <div style="margin-bottom:8px;">
-              <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-                <label>Stroke width</label>
-                <span class="point-stroke-width-value" style="font-size:10px; color:var(--accent); font-weight:bold;">${layer.pointStrokeWidth ?? 2}px</span>
+              <div class="layer-sym-trigger" style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:8px; border-radius:6px; border:1px solid var(--border-color); background:rgba(15,23,42,0.4); margin-bottom:4px;" title="Click to edit point symbol">
+                <div class="layer-sym-preview" style="display:flex; align-items:center; justify-content:center; width:36px; height:36px; background:rgba(0,0,0,0.3); border-radius:6px; flex-shrink:0; overflow:hidden;"></div>
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:11px; font-weight:600; color:var(--text-primary);">${SYMBOL_SHAPES.find(s => s.id === (layer.pointSymbolType || 'circle'))?.label || 'Circle'}</div>
+                  <div style="font-size:10px; color:var(--text-muted);">${layer.pointSize ?? 10}px · stroke ${layer.pointStrokeWidth ?? 2}px</div>
+                </div>
+                <span style="font-size:10px; color:var(--text-muted);">✎</span>
               </div>
-              <input type="range" class="point-stroke-width" min="0" max="10" step="0.5" value="${layer.pointStrokeWidth ?? 2}" style="width:100%; accent-color:var(--accent);" />
-            </div>
-          </div>
-          <span style="font-size:10px; color:var(--text-muted); display:block; margin-top:6px;">Fill color uses symbology above. Opacity applies to the whole symbol.</span>
         </div>
 
         <div class="vector-border-panel" style="display: ${layerHasLinesOrPolygons(layer) ? 'block' : 'none'};">
@@ -156,12 +125,6 @@ function renderUI() {
             <span class="layer-weight-value" style="font-size:10px; color:var(--accent); font-weight:bold;">${layer.weight ? layer.weight + 'px' : 'No border'}</span>
           </div>
           <input type="range" class="layer-weight" min="0" max="6" value="${layer.weight}" style="width:100%; accent-color:var(--accent);" />
-        </div>
-        <div style="margin-bottom:8px;">
-          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
-            <input type="checkbox" class="layer-nofill" ${layer.noFill ? 'checked' : ''} style="accent-color:var(--accent);" />
-            Transparent fill (stroke only)
-          </label>
         </div>
         </div>
         <div>
@@ -182,67 +145,51 @@ function renderUI() {
     div.querySelector('.layer-checkbox').onchange = () => toggleLayer(layer.id);
     const weightInput = div.querySelector('.layer-weight');
     const weightLabel = div.querySelector('.layer-weight-value');
+    let weightRaf = null;
     weightInput.addEventListener('input', (e) => {
       const w = parseInt(e.target.value, 10);
       if (weightLabel) weightLabel.textContent = w ? `${w}px` : 'No border';
-      updateStyle(layer.id, 'weight', w, { renderUI: false });
+      if (weightRaf) cancelAnimationFrame(weightRaf);
+      weightRaf = requestAnimationFrame(() => { updateStyle(layer.id, 'weight', w, { renderUI: false }); weightRaf = null; });
     });
 
     const opacityInput = div.querySelector('.layer-opacity');
     const opacityLabel = div.querySelector('.layer-opacity-value');
+    let opacityRaf = null;
     opacityInput.addEventListener('input', (e) => {
       const pct = parseInt(e.target.value, 10);
       if (opacityLabel) opacityLabel.textContent = `${pct}%`;
-      updateStyle(layer.id, 'opacity', pct / 100, { renderUI: false });
+      if (opacityRaf) cancelAnimationFrame(opacityRaf);
+      opacityRaf = requestAnimationFrame(() => { updateStyle(layer.id, 'opacity', pct / 100, { renderUI: false }); opacityRaf = null; });
     });
 
-    const noFillCheck = div.querySelector('.layer-nofill');
-    if (noFillCheck) { noFillCheck.addEventListener('change', () => updateStyle(layer.id, 'noFill', noFillCheck.checked)); }
-
     const strokeColorInput = div.querySelector('.stroke-color');
-    strokeColorInput.addEventListener('input', (e) => { updateStyle(layer.id, 'strokeColor', e.target.value, { renderUI: false }); });
+    let strokeRaf = null;
+    strokeColorInput.addEventListener('input', (e) => {
+      if (strokeRaf) cancelAnimationFrame(strokeRaf);
+      strokeRaf = requestAnimationFrame(() => { updateStyle(layer.id, 'strokeColor', e.target.value, { renderUI: false }); strokeRaf = null; });
+    });
     div.querySelector('.btn-up').onclick = () => moveLayer(i, 1);
     div.querySelector('.btn-down').onclick = () => moveLayer(i, -1);
     div.querySelector('.btn-delete-layer').onclick = () => deleteLayer(layer.id);
 
     const pointPanel = div.querySelector('.point-symbol-panel');
     if (pointPanel) {
-      const symbolTypeEl = pointPanel.querySelector('.point-symbol-type');
-      const pointSizeEl = pointPanel.querySelector('.point-size');
-      const pointSizeLabel = pointPanel.querySelector('.point-size-value');
-      const customFile = pointPanel.querySelector('.custom-symbol-file');
-      const customTrigger = pointPanel.querySelector('.custom-symbol-trigger');
-
-      if (symbolTypeEl) { symbolTypeEl.onchange = (e) => updateStyle(layer.id, 'pointSymbolType', e.target.value); }
-      if (pointSizeEl) {
-        pointSizeEl.addEventListener('input', (e) => {
-          const sz = parseInt(e.target.value, 10);
-          if (pointSizeLabel) pointSizeLabel.textContent = `${sz}px`;
-          updateStyle(layer.id, 'pointSize', sz, { renderUI: false });
-        });
+      const symTrigger = pointPanel.querySelector('.layer-sym-trigger');
+      const symPreview = pointPanel.querySelector('.layer-sym-preview');
+      if (symPreview) {
+        const st = layer.pointSymbolType || 'circle';
+        const sc = layer.pointStrokeColor || '#ffffff';
+        const sw = layer.pointStrokeWidth ?? 2;
+        const sz = layer.pointSize ?? 10;
+        if (st === 'custom' && layer.customSymbolUrl) {
+          symPreview.innerHTML = '<img src="' + layer.customSymbolUrl + '" style="width:28px;height:28px;object-fit:contain;" />';
+        } else {
+          symPreview.innerHTML = buildPointSymbolHtml(st, layer.color, sc, Math.max(6, sz / 2), sw);
+        }
       }
-      if (customTrigger && customFile) {
-        customTrigger.onclick = () => customFile.click();
-        customFile.onchange = (e) => {
-          const file = e.target.files[0];
-          if (file) handleCustomSymbolUpload(layer.id, file);
-          e.target.value = '';
-        };
-      }
-
-      const pointStrokeColorEl = pointPanel.querySelector('.point-stroke-color');
-      const pointStrokeWidthEl = pointPanel.querySelector('.point-stroke-width');
-      if (pointStrokeColorEl) {
-        pointStrokeColorEl.addEventListener('input', (e) => { updateStyle(layer.id, 'pointStrokeColor', e.target.value, { renderUI: false }); });
-        pointStrokeColorEl.addEventListener('change', () => updateStyle(layer.id, 'pointStrokeColor', pointStrokeColorEl.value));
-      }
-      if (pointStrokeWidthEl) {
-        const strokeWidthLabel = div.querySelector('.point-stroke-width-value');
-        pointStrokeWidthEl.addEventListener('input', (e) => {
-          const w = parseFloat(e.target.value);
-          if (strokeWidthLabel) strokeWidthLabel.textContent = `${w}px`;
-          updateStyle(layer.id, 'pointStrokeWidth', w, { renderUI: false });
-        });
+      if (symTrigger) {
+        symTrigger.addEventListener('click', () => openLayerSymbolEditor(layer));
       }
     }
 
@@ -393,13 +340,129 @@ function renderUI() {
         const catRow = document.createElement('div');
         catRow.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:11px; color:var(--text-secondary);';
 
-        const colorInput = document.createElement('input');
-        colorInput.type = 'color';
-        colorInput.value = layer.categories[catKey];
-        colorInput.style.cssText = 'width:22px; height:18px; border:0; padding:0; background:none; cursor:pointer; flex-shrink:0;';
-        colorInput.addEventListener('input', (e) => { updateCategoryColor(layer.id, catKey, e.target.value, { renderUI: false }); });
-        colorInput.addEventListener('change', (e) => { updateCategoryColor(layer.id, catKey, e.target.value); });
-        catRow.appendChild(colorInput);
+        const colorSwatch = document.createElement('div');
+        colorSwatch.style.cssText = 'width:22px; height:18px; border-radius:3px; cursor:pointer; flex-shrink:0; border:1px solid var(--border-color);';
+        colorSwatch.style.backgroundColor = layer.categories[catKey];
+        colorSwatch.title = 'Click to edit color';
+        colorSwatch.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const existing = document.getElementById('cat-color-popup');
+          if (existing) { existing.remove(); return; }
+          const popup = document.createElement('div');
+          popup.id = 'cat-color-popup';
+          popup.style.cssText = 'position:fixed; z-index:10000; background:#0f172a; border:1px solid var(--border-color); border-radius:8px; padding:10px; box-shadow:0 4px 16px rgba(0,0,0,0.4);';
+          const rect = colorSwatch.getBoundingClientRect();
+          popup.style.left = rect.left + 'px';
+          popup.style.top = (rect.bottom + 4) + 'px';
+          const ci = document.createElement('input');
+          ci.type = 'color';
+          ci.value = layer.categories[catKey];
+          ci.style.cssText = 'width:100%; height:32px; border:0; padding:0; cursor:pointer; margin-bottom:8px;';
+          ci.addEventListener('input', (ev) => {
+            colorSwatch.style.backgroundColor = ev.target.value;
+            updateCategoryColor(layer.id, catKey, ev.target.value, { renderUI: false });
+          });
+          ci.addEventListener('change', (ev) => {
+            updateCategoryColor(layer.id, catKey, ev.target.value);
+          });
+          popup.appendChild(ci);
+          const nfRow = document.createElement('label');
+          nfRow.style.cssText = 'display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-secondary); cursor:pointer; white-space:nowrap;';
+          const nfCheck = document.createElement('input');
+          nfCheck.type = 'checkbox';
+          nfCheck.checked = !!(layer.categoryNoFill && layer.categoryNoFill[catKey]);
+          nfCheck.style.cssText = 'accent-color:var(--accent); cursor:pointer;';
+          nfCheck.addEventListener('change', () => {
+            if (!layer.categoryNoFill) layer.categoryNoFill = {};
+            layer.categoryNoFill[catKey] = nfCheck.checked;
+            rebuildLeafletLayer(layer, { renderUI: false });
+          });
+          nfRow.appendChild(nfCheck);
+          nfRow.appendChild(document.createTextNode('Transparent fill'));
+          popup.appendChild(nfRow);
+
+          const cs = (layer.categoryStroke && layer.categoryStroke[catKey]) || {};
+
+          const scLabel = document.createElement('div');
+          scLabel.style.cssText = 'font-size:10px; color:var(--text-muted); margin-top:6px; margin-bottom:4px;';
+          scLabel.textContent = 'Stroke';
+          popup.appendChild(scLabel);
+
+          const scColorRow = document.createElement('div');
+          scColorRow.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:4px;';
+          const scColor = document.createElement('input');
+          scColor.type = 'color';
+          scColor.value = cs.color || layer.strokeColor || layer.color;
+          scColor.style.cssText = 'width:24px; height:20px; border:0; padding:0; cursor:pointer; flex-shrink:0;';
+          scColor.addEventListener('input', () => {
+            if (!layer.categoryStroke) layer.categoryStroke = {};
+            if (!layer.categoryStroke[catKey]) layer.categoryStroke[catKey] = {};
+            layer.categoryStroke[catKey].color = scColor.value;
+            if (!popup._scRaf) popup._scRaf = requestAnimationFrame(() => { rebuildLeafletLayer(layer, { renderUI: false }); popup._scRaf = null; });
+          });
+          scColorRow.appendChild(scColor);
+          const scHex = document.createElement('span');
+          scHex.style.cssText = 'font-size:10px; color:var(--text-muted);';
+          scHex.textContent = scColor.value;
+          scColor.addEventListener('input', () => { scHex.textContent = scColor.value; });
+          scColorRow.appendChild(scHex);
+          popup.appendChild(scColorRow);
+
+          const scWidthRow = document.createElement('div');
+          scWidthRow.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:4px;';
+          const scWidthLabel = document.createElement('span');
+          scWidthLabel.style.cssText = 'font-size:10px; color:var(--text-muted); min-width:32px;';
+          scWidthLabel.textContent = 'Width';
+          scWidthRow.appendChild(scWidthLabel);
+          const scWidth = document.createElement('input');
+          scWidth.type = 'range'; scWidth.min = 0; scWidth.max = 10; scWidth.step = 0.5;
+          scWidth.value = cs.width !== undefined ? cs.width : layer.weight;
+          scWidth.style.cssText = 'flex:1; accent-color:var(--accent);';
+          scWidth.addEventListener('input', () => {
+            if (!layer.categoryStroke) layer.categoryStroke = {};
+            if (!layer.categoryStroke[catKey]) layer.categoryStroke[catKey] = {};
+            layer.categoryStroke[catKey].width = parseFloat(scWidth.value);
+            scWidthVal.textContent = scWidth.value + 'px';
+            if (!popup._swRaf) popup._swRaf = requestAnimationFrame(() => { rebuildLeafletLayer(layer, { renderUI: false }); popup._swRaf = null; });
+          });
+          scWidthRow.appendChild(scWidth);
+          const scWidthVal = document.createElement('span');
+          scWidthVal.style.cssText = 'font-size:10px; color:var(--text-muted); min-width:30px; text-align:right;';
+          scWidthVal.textContent = scWidth.value + 'px';
+          scWidthRow.appendChild(scWidthVal);
+          popup.appendChild(scWidthRow);
+
+          const scOpRow = document.createElement('div');
+          scOpRow.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:2px;';
+          const scOpLabel = document.createElement('span');
+          scOpLabel.style.cssText = 'font-size:10px; color:var(--text-muted); min-width:32px;';
+          scOpLabel.textContent = 'Opacity';
+          scOpRow.appendChild(scOpLabel);
+          const scOp = document.createElement('input');
+          scOp.type = 'range'; scOp.min = 0; scOp.max = 100;
+          scOp.value = cs.opacity !== undefined ? Math.round(cs.opacity * 100) : Math.round((layer.opacity ?? 0.4) * 100);
+          scOp.style.cssText = 'flex:1; accent-color:var(--accent);';
+          scOp.addEventListener('input', () => {
+            if (!layer.categoryStroke) layer.categoryStroke = {};
+            if (!layer.categoryStroke[catKey]) layer.categoryStroke[catKey] = {};
+            layer.categoryStroke[catKey].opacity = parseInt(scOp.value) / 100;
+            scOpVal.textContent = scOp.value + '%';
+            if (!popup._soRaf) popup._soRaf = requestAnimationFrame(() => { rebuildLeafletLayer(layer, { renderUI: false }); popup._soRaf = null; });
+          });
+          scOpRow.appendChild(scOp);
+          const scOpVal = document.createElement('span');
+          scOpVal.style.cssText = 'font-size:10px; color:var(--text-muted); min-width:30px; text-align:right;';
+          scOpVal.textContent = scOp.value + '%';
+          scOpRow.appendChild(scOpVal);
+          popup.appendChild(scOpRow);
+
+          document.body.appendChild(popup);
+          setTimeout(() => {
+            const closer = (ev) => { if (!popup.contains(ev.target)) { popup.remove(); document.removeEventListener('mousedown', closer); } };
+            document.addEventListener('mousedown', closer);
+          }, 0);
+        });
+        catRow.appendChild(colorSwatch);
 
         if (isPoints) {
           const catSym = layer.categorySymbols?.[catKey] || {};

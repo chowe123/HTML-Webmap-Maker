@@ -139,7 +139,6 @@ function exitLayoutMode() {
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
         map.invalidateSize(true);
-        if (mapRotation) setMapRotation(mapRotation);
       });
     });
   }

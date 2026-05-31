@@ -163,7 +163,8 @@ return `<!DOCTYPE html>
 <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
 <script>
 const exportedData = ${JSON.stringify(data)};
-const map = L.map('map').setView([43.7, -79.4], 10);
+const mv = exportedData.mapView || { lat: 43.7, lng: -79.4, zoom: 10 };
+const map = L.map('map', { renderer: L.canvas() }).setView([mv.lat, mv.lng], mv.zoom);
 
 ${currentBasemap === 'none' ? '' : `
 const bmType = '${BASEMAPS[currentBasemap].type}';
@@ -178,35 +179,6 @@ if (bmType === 'vector') {
   }).addTo(map);
 }
 `}
-
-var rotation = ${data.rotation || 0};
-if (rotation) {
-  var c = map.getContainer();
-  c.style.transform = 'rotate(' + rotation + 'deg)';
-  c.style.overflow = 'visible';
-  (function() {
-    var rad = rotation * Math.PI / 180, cosF = Math.cos(rad), sinF = Math.sin(rad), cosU = Math.cos(-rad), sinU = Math.sin(-rad);
-    var zc = document.querySelector('.leaflet-control-zoom');
-    var ac = document.querySelector('.leaflet-control-attribution');
-    [zc, ac].forEach(function(el) { if (el) { el.style.position = 'fixed'; el.style.zIndex = '1000'; } });
-    if (zc) { zc.style.top = '80px'; zc.style.left = '12px'; }
-    if (ac) { ac.style.bottom = '0'; ac.style.right = '0'; }
-    map._oMELL = map.mouseEventToLatLng;
-    map._oLLLP = map.latLngToLayerPoint;
-    map.mouseEventToLatLng = function(e) {
-      var rect = c.getBoundingClientRect(), sCx = rect.left + rect.width / 2, sCy = rect.top + rect.height / 2;
-      var dx = e.clientX - sCx, dy = e.clientY - sCy;
-      var uDx = dx * cosU - dy * sinU, uDy = dx * sinU + dy * cosU;
-      var sz = map.getSize(), cPt = L.point(sz.x / 2 + uDx, sz.y / 2 + uDy);
-      return map.layerPointToLatLng(map.containerPointToLayerPoint(cPt));
-    };
-    map.latLngToLayerPoint = function(latlng) {
-      var pt = map._oLLLP.call(map, latlng), sz = map.getSize(), cx = sz.x / 2, cy = sz.y / 2;
-      return L.point(cx + (pt.x - cx) * cosF - (pt.y - cy) * sinF, cy + (pt.x - cx) * sinF + (pt.y - cy) * cosF);
-    };
-  })();
-  map.invalidateSize(true);
-}
 
 let layers = [];
 let searchMarker = null;
@@ -280,6 +252,7 @@ function getCategoryKeyForValue(l, rawValue) {
 }
 
 function getCategoryDisplayLabel(l, key) {
+  if (l.customCategoryLabels && l.customCategoryLabels[key]) return l.customCategoryLabels[key];
   const intervals = l.intervals || [];
   for (let i = 0; i < intervals.length; i++) {
     if (intervals[i].key === key) return intervals[i].label;
@@ -303,7 +276,22 @@ function getExportedFillColor(l, feature) {
 function getExportedFeatureStyle(l, feature) {
   const fillColor = getExportedFillColor(l, feature);
   const layerOpacity = l.opacity ?? 0.4;
-  return { color: l.strokeColor || fillColor, fillColor, fillOpacity: layerOpacity, opacity: layerOpacity, weight: l.weight };
+  let fillOpacity = layerOpacity;
+  let strokeColor = l.strokeColor || fillColor;
+  let strokeWeight = l.weight;
+  let strokeOpacity = layerOpacity;
+  if (l.symbologyType === 'categorized' && l.symbologyField) {
+    const val = feature.properties ? feature.properties[l.symbologyField] : null;
+    const catKey = getCategoryKeyForValue(l, val);
+    if (l.categoryNoFill && l.categoryNoFill[catKey]) fillOpacity = 0;
+    const cs = l.categoryStroke && l.categoryStroke[catKey];
+    if (cs) {
+      if (cs.color !== undefined && cs.color !== '') strokeColor = cs.color;
+      if (cs.width !== undefined) strokeWeight = cs.width;
+      if (cs.opacity !== undefined) strokeOpacity = cs.opacity;
+    }
+  }
+  return { color: strokeColor, fillColor, fillOpacity, opacity: strokeOpacity, weight: strokeWeight };
 }
 
 function getExportedPointStrokeColor(l) {
@@ -476,11 +464,14 @@ function renderUI() {
     d.querySelector('.btn-up').onclick = () => moveLayer(i, 1); d.querySelector('.btn-down').onclick = () => moveLayer(i, -1);
     ld.appendChild(d);
     const legTitle = document.createElement("div"); legTitle.className = "legend-item"; legTitle.innerText = l.name; lg.appendChild(legTitle);
-    if (l.symbologyType === 'single') {
+    if (l.showLegend === false) { /* skip legend for this layer */ }
+    else if (l.symbologyType === 'single') {
       const sub = document.createElement("div"); sub.className = "legend-subitem";
       sub.innerHTML = '<span style="background:' + l.color + '"></span> All features'; lg.appendChild(sub);
     } else if (l.symbologyType === 'categorized' && l.symbologyField) {
+      var hiddenKeys = l.hiddenCatKeys || [];
       getOrderedCategoryKeys(l).forEach(function(k) {
+        if (hiddenKeys.indexOf(k) !== -1) return;
         const row = document.createElement('div'); row.className = 'legend-subitem-row';
         const sub = document.createElement("div"); sub.className = "legend-subitem"; sub.innerHTML = '<span style="background:' + l.categories[k] + '"></span>';
         const labelSpan = document.createElement('span'); labelSpan.className = 'cat-label'; labelSpan.textContent = getCategoryDisplayLabel(l, k);
@@ -498,7 +489,7 @@ function renderUI() {
         });
         sub.appendChild(labelSpan); row.appendChild(sub);
         const delBtn = document.createElement('button'); delBtn.type = 'button'; delBtn.className = 'legend-del-btn'; delBtn.title = 'Remove category'; delBtn.textContent = '×';
-        delBtn.addEventListener('click', (e) => { e.stopPropagation(); delete l.categories[k]; delete l.customCategoryLabels?.[k]; delete l.categorySymbols?.[k]; if (l.categoryOrder) l.categoryOrder = l.categoryOrder.filter(ck => ck !== k); renderUI(); });
+        delBtn.addEventListener('click', (e) => { e.stopPropagation(); delete l.categories[k]; delete l.customCategoryLabels?.[k]; delete l.categorySymbols?.[k]; delete l.categoryNoFill?.[k]; delete l.categoryStroke?.[k]; if (l.categoryOrder) l.categoryOrder = l.categoryOrder.filter(ck => ck !== k); renderUI(); });
         row.appendChild(delBtn); lg.appendChild(row);
       });
     }
