@@ -13,9 +13,19 @@ function handleFile(e) {
   if (!file) return;
   e.target.value = '';
 
-  const isZip = file.name.endsWith('.zip');
+  const name = file.name.toLowerCase();
+  const isZip = name.endsWith('.zip');
+  const isTif = name.endsWith('.tif') || name.endsWith('.tiff');
 
-  if (isZip) {
+  if (isTif) {
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      addRasterLayer(file.name.replace(/\.tiff?$/i, ''), ev.target.result).catch(function(err) {
+        console.error(err);
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  } else if (isZip) {
     const reader = new FileReader();
     reader.onload = function(ev) {
       try {
@@ -67,19 +77,26 @@ function getProjectSnapshot() {
   return {
     version: PROJECT_VERSION, title: projectTitle, dataNote, basemap: currentBasemap, searchMode,
     mapView: { lat: center.lat, lng: center.lng, zoom: map.getZoom() },
-    layerCounter, layers: layerStore.map(getLayerExportPayload)
+    layerCounter, layers: layerStore.map(getLayerExportPayload),
+    rasterLayers: rasterStore.map(function(r) {
+      return { id: r.id, name: r.name, dataUrl: r.dataUrl, bounds: r.bounds, visible: r.visible, opacity: r.opacity };
+    })
   };
 }
 
 function clearAllLayers() {
-  layerStore.forEach(layer => { map.removeLayer(layer.leafletLayer); });
+  layerStore.forEach(layer => { if (layer.leafletLayer) map.removeLayer(layer.leafletLayer); });
   layerStore = [];
   if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
+  clearAllRasterLayers();
+  localMBFilename = '';
+  if (window.syncDeckLayers) window.syncDeckLayers();
 }
 
 function loadProjectSnapshot(snapshot) {
   if (!snapshot || !Array.isArray(snapshot.layers)) { throw new Error('Invalid project file'); }
   clearAllLayers();
+  localMBFilename = '';
   layerCounter = snapshot.layerCounter || 0;
   projectTitle = snapshot.title || '';
   dataNote = snapshot.dataNote || '';
@@ -118,10 +135,22 @@ function loadProjectSnapshot(snapshot) {
   if (snapshot.mapView) { map.setView([snapshot.mapView.lat, snapshot.mapView.lng], snapshot.mapView.zoom || 10); }
 
   if (snapshot.basemap && BASEMAPS[snapshot.basemap]) {
-    setBasemap(snapshot.basemap);
+    var target = (snapshot.basemap === 'local' && !localMBLayer) ? 'none' : snapshot.basemap;
+    setBasemap(target);
     document.querySelectorAll('.basemap-option').forEach(el => el.classList.remove('active'));
-    const lbl = document.querySelector(`.basemap-option[data-basemap="${snapshot.basemap}"]`);
+    const lbl = document.querySelector(`.basemap-option[data-basemap="${target}"]`);
     if (lbl) lbl.classList.add('active');
+  }
+
+  if (snapshot.rasterLayers && Array.isArray(snapshot.rasterLayers)) {
+    snapshot.rasterLayers.forEach(function(rd) {
+      var bounds = L.latLngBounds([rd.bounds.south, rd.bounds.west], [rd.bounds.north, rd.bounds.east]);
+      var overlay = L.imageOverlay(rd.dataUrl, bounds, { opacity: rd.opacity || 1.0 }).addTo(map);
+      if (rd.visible === false) map.removeLayer(overlay);
+      var ro = { id: rd.id || 'raster_' + (++rasterCounter), name: rd.name, overlay: overlay, bounds: rd.bounds, dataUrl: rd.dataUrl, visible: rd.visible !== false, opacity: rd.opacity || 1.0 };
+      rasterStore.push(ro);
+    });
+    syncRasterZIndex();
   }
 
   if (snapshot.searchMode) {
@@ -193,7 +222,8 @@ function exportHTML() {
   syncProjectMetaFromUI();
   const center = map.getCenter();
   const exportData = {
-    title: projectTitle, dataNote, searchMode,
+    title: projectTitle, dataNote, searchMode, basemap: currentBasemap,
+    mbtilesFilename: currentBasemap === 'local' ? localMBFilename : '',
     mapView: { lat: center.lat, lng: center.lng, zoom: map.getZoom() },
     layers: layerStore.map(l => ({
       name: l.name, geojson: l.geojson, color: l.color, strokeColor: l.strokeColor || l.color,
@@ -212,7 +242,10 @@ function exportHTML() {
       labelStrokeColor: l.labelStrokeColor || '#000000', labelStrokeWidth: l.labelStrokeWidth ?? 2,
       colorRamp: l.colorRamp || '', colorRampReversed: l.colorRampReversed || false,
       customCategoryLabels: l.customCategoryLabels || {}, categoryNoFill: l.categoryNoFill || {}, categoryStroke: l.categoryStroke || {}
-    }))
+    })),
+    rasterLayers: rasterStore.map(function(r) {
+      return { name: r.name, dataUrl: r.dataUrl, bounds: r.bounds, visible: r.visible, opacity: r.opacity };
+    })
   };
 
   const html = generateHTML(exportData);

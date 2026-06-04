@@ -16,13 +16,41 @@ document.getElementById('dataNote').addEventListener('input', syncProjectMetaFro
 document.getElementById('fileInput').addEventListener('change', handleFile);
 
 
+var _basemapChanging = false;
 document.getElementById('basemapOptions').addEventListener('change', (e) => {
+  if (_basemapChanging) return;
   const label = e.target.closest('.basemap-option');
   if (!label || !e.target.matches('input[type="radio"]')) return;
   const name = e.target.value;
+  if (name === 'local' && !localMBLayer) {
+    _basemapChanging = true;
+    document.querySelectorAll('.basemap-option').forEach(el => el.classList.remove('active'));
+    var prevRadio = document.querySelector('input[name="basemap"][value="' + currentBasemap + '"]');
+    if (prevRadio) prevRadio.checked = true;
+    var prevLabel = document.querySelector('.basemap-option[data-basemap="' + currentBasemap + '"]');
+    if (prevLabel) prevLabel.classList.add('active');
+    _basemapChanging = false;
+    document.getElementById('mbtilesFileInput').click();
+    return;
+  }
   setBasemap(name);
   document.querySelectorAll('.basemap-option').forEach(el => el.classList.remove('active'));
   label.classList.add('active');
+});
+
+document.getElementById('mbtilesFileInput').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';
+  loadLocalMBTiles(file).then(function() {
+    setBasemap('local');
+    document.querySelectorAll('.basemap-option').forEach(function(el) { el.classList.remove('active'); });
+    var lbl = document.querySelector('.basemap-option[data-basemap="local"]');
+    if (lbl) lbl.classList.add('active');
+  }).catch(function(err) {
+    alert('Failed to load mbtiles: ' + (err.message || err));
+    setBasemap(currentBasemap);
+  });
 });
 
 document.querySelectorAll('input[name="searchMode"]').forEach(el => {
@@ -55,7 +83,7 @@ document.querySelectorAll('input[name="searchMode"]').forEach(el => {
 });
 
 window.addEventListener('beforeunload', (e) => {
-  if (layerStore.length > 0 || document.getElementById('projectTitle').value || document.getElementById('dataNote').value) {
+  if (layerStore.length > 0 || rasterStore.length > 0 || document.getElementById('projectTitle').value || document.getElementById('dataNote').value) {
     e.preventDefault(); e.returnValue = '';
   }
 });

@@ -61,6 +61,28 @@ function startLayerRename(layer) {
   input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); } if (ev.key === 'Escape') { ev.preventDefault(); finish(false); } });
 }
 
+function startRasterRename(raster) {
+  const layersDiv = document.getElementById('layers');
+  var allSpans = layersDiv.querySelectorAll('.layer-name-display');
+  var idx = rasterStore.indexOf(raster);
+  if (idx === -1) return;
+  var nameSpan = allSpans[allSpans.length - 1 - rasterStore.length + 1 + idx];
+  if (!nameSpan) return;
+  const currentName = nameSpan.textContent;
+  const input = document.createElement('input');
+  input.type = 'text'; input.className = 'layer-name-input'; input.value = currentName;
+  nameSpan.replaceWith(input);
+  input.focus(); input.select();
+  function finish(confirmed) {
+    const newName = confirmed ? input.value.trim() : currentName;
+    if (newName && newName !== currentName) renameRasterLayer(raster.id, newName);
+    const span = document.createElement('span'); span.className = 'layer-name-display'; span.textContent = newName || currentName;
+    input.replaceWith(span);
+  }
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); } if (ev.key === 'Escape') { ev.preventDefault(); finish(false); } });
+}
+
 // =========================
 // FILTER EDITOR
 // =========================

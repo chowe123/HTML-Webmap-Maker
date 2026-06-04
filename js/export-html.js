@@ -43,6 +43,7 @@ return `<!DOCTYPE html>
   }
   #sidebar {
     width: 360px;
+    height: 100vh;
     background: var(--bg-sidebar);
     border-right: 1px solid var(--border-color);
     display: flex;
@@ -71,7 +72,7 @@ return `<!DOCTYPE html>
   .sidebar-content {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: 20px 20px 40px 20px;
     display: flex;
     flex-direction: column;
     gap: 20px;
@@ -112,10 +113,8 @@ return `<!DOCTYPE html>
   }
   .layer-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .layer-title { font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .reorder-btns button { background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); color: var(--text-secondary); padding: 2px 5px; font-size: 9px; cursor: pointer; border-radius: 3px; }
-  .legend-item { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-top: 6px;}
-  .legend-subitem { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-secondary); padding-left: 8px; margin-top: 3px;}
-  .legend-subitem span { width: 10px; height: 10px; display: inline-block; border-radius: 3px; }
+  .legend-item { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-top: 10px; margin-bottom: 4px; }
+  .legend-subitem { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); padding-left: 8px; margin-top: 4px; min-height: 22px; }
   .map-search-control { display: flex; flex-direction: column; min-width: 220px; }
   .map-search-inner { display: flex; align-items: center; background: var(--bg-sidebar); border-radius: var(--radius-md); }
   .map-search-inner input { flex:1; min-width:0; background:transparent; border:none; padding:7px 10px; font-size:12px; color:var(--text-primary); outline:none; }
@@ -130,7 +129,7 @@ return `<!DOCTYPE html>
   .map-mode-toggle { display:inline-flex; align-items:center; justify-content:center; background:transparent; border:none; border-left:1px solid var(--border-color); color:var(--text-muted); padding:6px 8px; cursor:pointer; flex-shrink:0; opacity:0.6; }
   .map-mode-toggle:hover { opacity:1; color:var(--accent); }
   .map-pin-hint { padding:10px; font-size:11px; color:var(--text-secondary); line-height:1.4; }
-  #map { flex: 1; height: 100vh; background-color: #0b0f19 !important; }
+  #map { flex: 1; height: 100vh; background-color: #0b0f19 !important; position: relative; }
   .leaflet-popup-content-wrapper { background: rgba(15,23,42,0.95) !important; color:#fff !important; border:1px solid var(--border-color); }
   .gis-point-symbol-icon, .gis-custom-point-icon { background: transparent !important; border: none !important; }
   .gis-point-symbol-icon svg { display: block; }
@@ -151,7 +150,7 @@ return `<!DOCTYPE html>
     </div>
     <div class="card">
       <div class="card-title">Legend</div>
-      <div id="legend"></div>
+      <div id="legend" style="padding-bottom: 16px;"></div>
     </div>
   </div>
 </div>
@@ -161,24 +160,142 @@ return `<!DOCTYPE html>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
 <script>
 const exportedData = ${JSON.stringify(data)};
 const mv = exportedData.mapView || { lat: 43.7, lng: -79.4, zoom: 10 };
 const map = L.map('map', { renderer: L.canvas() }).setView([mv.lat, mv.lng], mv.zoom);
 
-${currentBasemap === 'none' ? '' : `
-const bmType = '${BASEMAPS[currentBasemap].type}';
-if (bmType === 'vector') {
-  L.maplibreGL({
-    style: '${BASEMAPS[currentBasemap].url}',
-    attribution: '${BASEMAPS[currentBasemap].attribution}'
-  }).addTo(map);
+function loadMBTilesBuffer(buf) {
+  initSqlJs({ locateFile: function(f) { return 'https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/' + f; } }).then(function(SQL) {
+    try {
+      var db = new SQL.Database(new Uint8Array(buf));
+      var meta = {};
+      var ms = db.prepare("SELECT name, value FROM metadata");
+      while (ms.step()) { var row = ms.getAsObject(); meta[row.name] = row.value; }
+      ms.free();
+      var fmt = (meta.format || 'png').replace(/^image\\//, '');
+      var maxZ = parseInt(meta.maxzoom, 10) || 18;
+      function qTile(z, x, y) {
+        var tmsY = Math.pow(2, z) - 1 - y;
+        var s = db.prepare("SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?");
+        s.bind([z, x, tmsY]); if (s.step()) { var r = s.getAsObject(); s.free(); return r.tile_data; } s.free();
+        s = db.prepare("SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?");
+        s.bind([z, x, y]); if (s.step()) { var r = s.getAsObject(); s.free(); return r.tile_data; } s.free();
+        return null;
+      }
+      var layer = new (L.GridLayer.extend({
+        createTile: function(coords, done) {
+          var tile = L.DomUtil.create('img', 'leaflet-tile');
+          tile.alt = '';
+          try {
+            var d = qTile(coords.z, coords.x, coords.y);
+            if (d) {
+              var mime = fmt === 'jpg' || fmt === 'jpeg' ? 'image/jpeg' : 'image/png';
+              var url = URL.createObjectURL(new Blob([d], { type: mime }));
+              tile.addEventListener('load', function() { URL.revokeObjectURL(url); done(null, tile); });
+              tile.addEventListener('error', function() { URL.revokeObjectURL(url); done(null, tile); });
+              tile.src = url;
+            } else { done(null, tile); }
+          } catch(e) { done(null, tile); }
+          return tile;
+        }
+      }))({ minZoom: 0, maxZoom: 22, maxNativeZoom: maxZ, tileSize: 256, noWrap: true });
+      layer.addTo(map);
+      doneMBTiles(null, buf);
+    } catch(e) { doneMBTiles(e, null); }
+  }).catch(function(e) { doneMBTiles(e, null); });
+}
+function doneMBTiles(err, buf) {
+  var banner = document.getElementById('_mbtiles_banner');
+  if (err) {
+    if (banner) { banner.textContent = 'Error: ' + (err.message || err); banner.style.borderColor = '#ef4444'; banner.style.cursor = 'default'; banner.style.opacity = '1'; }
+    setTimeout(function() {
+      if (banner) {
+        banner.textContent = 'Click to select the MBTiles basemap file';
+        banner.style.borderColor = '#3b82f6'; banner.style.cursor = 'pointer'; banner.style.opacity = '1';
+      }
+    }, 4000);
+  } else {
+    // Cache in IndexedDB for next page load
+    try {
+      var cr = indexedDB.open('MbtilesCache', 1);
+      cr.onupgradeneeded = function(e) { if (!e.target.result.objectStoreNames.contains('data')) e.target.result.createObjectStore('data'); };
+      cr.onsuccess = function(e) {
+        var tx = e.target.result.transaction('data', 'readwrite');
+        tx.objectStore('data').put(buf, 'mbtiles');
+      };
+    } catch(ie) {}
+    if (banner) {
+      banner.textContent = 'Basemap loaded';
+      banner.style.borderColor = '#22c55e'; banner.style.cursor = 'default'; banner.style.opacity = '0.8';
+      setTimeout(function() { if (banner && banner.parentNode) banner.parentNode.removeChild(banner); }, 1500);
+    }
+  }
+}
+function tryLoadMBTiles(filename) {
+  if (window.location.protocol === 'file:') { tryLoadMBTilesFromCache(); return; }
+  fetch(filename).then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.arrayBuffer();
+  }).then(function(buf) {
+    loadMBTilesBuffer(buf);
+  }).catch(function() {
+    showMBTilesPrompt();
+  });
+}
+function tryLoadMBTilesFromCache() {
+  try {
+    var cr = indexedDB.open('MbtilesCache', 1);
+    cr.onupgradeneeded = function(e) { if (!e.target.result.objectStoreNames.contains('data')) e.target.result.createObjectStore('data'); };
+    cr.onsuccess = function(e) {
+      var tx = e.target.result.transaction('data', 'readonly');
+      var r = tx.objectStore('data').get('mbtiles');
+      r.onsuccess = function() {
+        if (r.result instanceof ArrayBuffer) { loadMBTilesBuffer(r.result); }
+        else { showMBTilesPrompt(); }
+      };
+      r.onerror = function() { showMBTilesPrompt(); };
+    };
+    cr.onerror = function() { showMBTilesPrompt(); };
+  } catch(e) { showMBTilesPrompt(); }
+}
+function showMBTilesPrompt() {
+  var inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.mbtiles';
+  inp.id = '_mbtiles_picker';
+  inp.style.display = 'none';
+  inp.addEventListener('change', function(e) {
+    var f = e.target.files[0]; if (!f) return;
+    var banner = document.getElementById('_mbtiles_banner');
+    if (banner) { banner.textContent = 'Loading basemap...'; banner.style.borderColor = '#3b82f6'; banner.style.cursor = 'default'; banner.style.opacity = '0.6'; }
+    var reader = new FileReader();
+    reader.onload = function(ev) { loadMBTilesBuffer(ev.target.result); };
+    reader.readAsArrayBuffer(f);
+  });
+  document.body.appendChild(inp);
+  var old = document.getElementById('_mbtiles_banner');
+  if (old) old.parentNode.removeChild(old);
+  var lbl = document.createElement('label');
+  lbl.htmlFor = '_mbtiles_picker';
+  lbl.id = '_mbtiles_banner';
+  lbl.textContent = 'Click to select the MBTiles basemap file';
+  lbl.style.cssText = 'position:absolute;bottom:30px;left:50%;transform:translateX(-50%);background:#1e293b;color:#f8fafc;padding:14px 28px;border-radius:10px;border:2px dashed #3b82f6;font-size:15px;font-weight:600;z-index:1000;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.5);text-align:center;white-space:nowrap;';
+  document.getElementById('map').appendChild(lbl);
+}
+var exBasemap = exportedData.basemap || 'none';
+if (exBasemap === 'local') {
+  if (exportedData.mbtilesFilename) tryLoadMBTiles(exportedData.mbtilesFilename);
+} else if (exBasemap !== 'none') {
+${currentBasemap === 'none' || currentBasemap === 'local' ? '' : `
+var bmCfg = { type: '${BASEMAPS[currentBasemap].type}', url: '${BASEMAPS[currentBasemap].url}', attribution: '${BASEMAPS[currentBasemap].attribution}' };
+if (bmCfg.type === 'vector') {
+  L.maplibreGL({ style: bmCfg.url, attribution: bmCfg.attribution }).addTo(map);
 } else {
-  L.tileLayer('${BASEMAPS[currentBasemap].url}', {
-    attribution: '${BASEMAPS[currentBasemap].attribution}'
-  }).addTo(map);
+  L.tileLayer(bmCfg.url, { attribution: bmCfg.attribution }).addTo(map);
 }
 `}
+}
 
 let layers = [];
 let searchMarker = null;
@@ -294,6 +411,22 @@ function getExportedFeatureStyle(l, feature) {
   return { color: strokeColor, fillColor, fillOpacity, opacity: strokeOpacity, weight: strokeWeight };
 }
 
+function getExportedSelFeatureStyle(l, feature) {
+  var style = getExportedFeatureStyle(l, feature);
+  var sel = selectedFeatures[l.name];
+  if (sel && sel.size) {
+    var features = l.geojson.features || [];
+    var idx = features.indexOf(feature);
+    if (idx >= 0 && sel.has(idx)) {
+      style.fillColor = '#00e5ff';
+      style.fillOpacity = 1;
+      style.weight = Math.max(style.weight || 1, 3);
+      style.opacity = 1;
+    }
+  }
+  return style;
+}
+
 function getExportedPointStrokeColor(l) {
   return l.pointStrokeColor || l.strokeColor || '#ffffff';
 }
@@ -348,13 +481,16 @@ function layerDataHasPoints(l) {
   return false;
 }
 
-function createExportedPointMarker(feature, latlng, l) {
-  const fillColor = getExportedFillColor(l, feature);
-  const strokeColor = getExportedPointStrokeColor(l);
+function buildExportedPointIcon(feature, l) {
+  var fillColor = getExportedFillColor(l, feature);
+  var strokeColor = getExportedPointStrokeColor(l);
+  var features = l.geojson.features || [];
+  var idx = features.indexOf(feature);
+  var isSelected = selectedFeatures[l.name] && idx >= 0 && selectedFeatures[l.name].has(idx);
+  if (isSelected) { fillColor = '#00e5ff'; }
   let size = l.pointSize ?? 10;
   let symbolType = l.pointSymbolType || 'circle';
   let strokeWidth = l.pointStrokeWidth ?? 2;
-  let customUrl = l.customSymbolUrl || null;
   if (l.symbologyType === 'categorized' && l.symbologyField) {
     const val = feature.properties ? feature.properties[l.symbologyField] : null;
     const catKey = getCategoryKeyForValue(l, val);
@@ -366,12 +502,19 @@ function createExportedPointMarker(feature, latlng, l) {
       if (catSym.pointStrokeWidth != null) strokeWidth = catSym.pointStrokeWidth;
     }
   }
-  const markerOpacity = l.opacity ?? 0.4;
+  const markerOpacity = isSelected ? 1 : (l.opacity ?? 0.4);
   const dim = Math.max(8, size * 2);
-  if (symbolType === 'custom' && customUrl) {
-    return L.marker(latlng, { icon: L.icon({ iconUrl: customUrl, iconSize: [dim, dim], iconAnchor: [size, size], popupAnchor: [0, -size], className: 'gis-custom-point-icon' }), opacity: markerOpacity });
+  if (symbolType === 'custom' && (l.customSymbolUrl || (l.categorySymbols && l.categorySymbols[getCategoryKeyForValue(l, feature.properties ? feature.properties[l.symbologyField] : null)]?.customSymbolUrl))) {
+    var url = l.customSymbolUrl;
+    var cs = l.symbologyType === 'categorized' && l.symbologyField ? l.categorySymbols?.[getCategoryKeyForValue(l, feature.properties ? feature.properties[l.symbologyField] : null)] : null;
+    if (cs && cs.customSymbolUrl) url = cs.customSymbolUrl;
+    return L.icon({ iconUrl: url, iconSize: [dim, dim], iconAnchor: [size, size], popupAnchor: [0, -size], className: 'gis-custom-point-icon' });
   }
-  return L.marker(latlng, { icon: L.divIcon({ className: 'gis-point-symbol-icon', html: buildExportedPointSymbolHtml(symbolType, fillColor, strokeColor, size, strokeWidth), iconSize: [dim, dim], iconAnchor: [size, size] }), opacity: markerOpacity });
+  return L.divIcon({ className: 'gis-point-symbol-icon', html: buildExportedPointSymbolHtml(symbolType, fillColor, strokeColor, size, strokeWidth), iconSize: [dim, dim], iconAnchor: [size, size] });
+}
+function createExportedPointMarker(feature, latlng, l) {
+  const markerOpacity = (selectedFeatures[l.name] && selectedFeatures[l.name].has((l.geojson.features || []).indexOf(feature))) ? 1 : (l.opacity ?? 0.4);
+  return L.marker(latlng, { icon: buildExportedPointIcon(feature, l), opacity: markerOpacity });
 }
 
 function escapeExportedHtml(str) {
@@ -426,10 +569,64 @@ exportedData.layers.forEach(function(l) {
   }
 });
 
+if (exportedData.rasterLayers) {
+  exportedData.rasterLayers.forEach(function(r) {
+    var b = r.bounds;
+    var bounds = L.latLngBounds([b.south, b.west], [b.north, b.east]);
+    var overlay = L.imageOverlay(r.dataUrl, bounds, { opacity: r.opacity || 1.0 });
+    if (r.visible !== false) overlay.addTo(map);
+  });
+}
+
+var selectedFeatures = {};
+map.on('click', function() { clearExportedSelection(); });
+function clearExportedSelection() {
+  var changed = {};
+  Object.keys(selectedFeatures).forEach(function(n) { if (selectedFeatures[n] && selectedFeatures[n].size) changed[n] = true; });
+  selectedFeatures = {};
+  Object.keys(changed).forEach(function(n) {
+    var l = layers.find(function(x) { return x.name === n; });
+    if (l && l.layer) {
+      l.layer.setStyle(l.layer.options.style);
+      l.layer.eachLayer(function(ll) {
+        if (ll.feature && isExportedPointFeature(ll.feature) && ll.setIcon) {
+          ll.setIcon(buildExportedPointIcon(ll.feature, l));
+          var op = (l.opacity ?? 0.4);
+          if (ll.setOpacity) ll.setOpacity(op);
+        }
+      });
+    }
+  });
+}
+function toggleExportedSelection(l, feature) {
+  var features = l.geojson.features || [];
+  var idx = features.indexOf(feature);
+  if (idx < 0) return;
+  clearExportedSelection();
+  if (!selectedFeatures[l.name]) selectedFeatures[l.name] = new Set();
+  selectedFeatures[l.name].add(idx);
+}
+function updateExportedLayerStyles(l) {
+  if (!l || !l.layer) return;
+  l.layer.setStyle(l.layer.options.style);
+  l.layer.eachLayer(function(ll) {
+    if (ll.feature && isExportedPointFeature(ll.feature) && ll.setIcon) {
+      ll.setIcon(buildExportedPointIcon(ll.feature, l));
+      var isSel = selectedFeatures[l.name] && selectedFeatures[l.name].has((l.geojson.features || []).indexOf(ll.feature));
+      if (ll.setOpacity) ll.setOpacity(isSel ? 1 : (l.opacity ?? 0.4));
+    }
+  });
+}
+
 exportedData.layers.forEach(l => {
   const geoOptions = {
-    style: function(feature) { if (isExportedPointFeature(feature)) return {}; return getExportedFeatureStyle(l, feature); },
+    style: function(feature) { if (isExportedPointFeature(feature)) return {}; return getExportedSelFeatureStyle(l, feature); },
     onEachFeature: function(f, leafletLayer) {
+      leafletLayer.on('click', function(e) {
+        L.DomEvent.stopPropagation(e);
+        toggleExportedSelection(l, f);
+        updateExportedLayerStyles(l);
+      });
       if (l.popupEnabled === false) { leafletLayer.unbindPopup(); }
       else { const html = buildExportedPopupHtml(f, l); if (html) leafletLayer.bindPopup(html); else leafletLayer.unbindPopup(); }
       if (l.labelEnabled && l.labelField) {
@@ -459,22 +656,24 @@ function renderUI() {
   for (let i = layers.length - 1; i >= 0; i--) {
     const l = layers[i];
     const d = document.createElement("div"); d.className = "layer-node";
-    d.innerHTML = \`<div class="layer-left"><input type="checkbox" \${map.hasLayer(l.layer) ? "checked" : ""} style="accent-color:var(--accent);" /><span class="layer-title">\${l.name}</span></div><div class="reorder-btns"><button class="btn-up" \${i === layers.length - 1 ? 'disabled' : ''}>▲</button><button class="btn-down" \${i === 0 ? 'disabled' : ''}>▼</button></div>\`;
+    d.innerHTML = \`<div class="layer-left"><input type="checkbox" \${map.hasLayer(l.layer) ? "checked" : ""} style="accent-color:var(--accent);" /><span class="layer-title">\${l.name}</span></div>\`;
     d.querySelector("input").onchange = (e) => { if (e.target.checked) map.addLayer(l.layer); else map.removeLayer(l.layer); syncMapZIndex(); };
-    d.querySelector('.btn-up').onclick = () => moveLayer(i, 1); d.querySelector('.btn-down').onclick = () => moveLayer(i, -1);
     ld.appendChild(d);
     const legTitle = document.createElement("div"); legTitle.className = "legend-item"; legTitle.innerText = l.name; lg.appendChild(legTitle);
     if (l.showLegend === false) { /* skip legend for this layer */ }
     else if (l.symbologyType === 'single') {
       const sub = document.createElement("div"); sub.className = "legend-subitem";
-      sub.innerHTML = '<span style="background:' + l.color + '"></span> All features'; lg.appendChild(sub);
+      const swatch = document.createElement('span'); swatch.style.cssText = 'background:' + l.color + ';width:12px;height:12px;display:inline-block;border-radius:3px;flex-shrink:0;';
+      const text = document.createElement('span'); text.textContent = ' All features';
+      sub.appendChild(swatch); sub.appendChild(text); lg.appendChild(sub);
     } else if (l.symbologyType === 'categorized' && l.symbologyField) {
       var hiddenKeys = l.hiddenCatKeys || [];
       getOrderedCategoryKeys(l).forEach(function(k) {
         if (hiddenKeys.indexOf(k) !== -1) return;
-        const row = document.createElement('div'); row.className = 'legend-subitem-row';
-        const sub = document.createElement("div"); sub.className = "legend-subitem"; sub.innerHTML = '<span style="background:' + l.categories[k] + '"></span>';
-        const labelSpan = document.createElement('span'); labelSpan.className = 'cat-label'; labelSpan.textContent = getCategoryDisplayLabel(l, k);
+        const sub = document.createElement("div"); sub.className = "legend-subitem";
+        const swatch = document.createElement('span'); swatch.style.cssText = 'background:' + l.categories[k] + ';width:12px;height:12px;display:inline-block;border-radius:3px;flex-shrink:0;';
+        const labelSpan = document.createElement('span'); labelSpan.textContent = getCategoryDisplayLabel(l, k);
+        labelSpan.style.cssText = 'display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
         labelSpan.addEventListener('dblclick', () => {
           const input = document.createElement('input'); input.type = 'text'; input.value = labelSpan.textContent;
           input.className = 'cat-label-input'; input.style.cssText = 'font-size:12px;padding:6px 8px;border:1px solid var(--accent);border-radius:3px;background:var(--bg-primary);color:var(--text-primary);width:100%;outline:none;box-sizing:border-box;';
@@ -487,10 +686,8 @@ function renderUI() {
           input.addEventListener('blur', () => finish(true)); input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') finish(true); if (ev.key === 'Escape') finish(false); });
           labelSpan.style.display = 'none'; labelSpan.parentNode.insertBefore(input, labelSpan); input.focus(); input.select();
         });
-        sub.appendChild(labelSpan); row.appendChild(sub);
-        const delBtn = document.createElement('button'); delBtn.type = 'button'; delBtn.className = 'legend-del-btn'; delBtn.title = 'Remove category'; delBtn.textContent = '×';
-        delBtn.addEventListener('click', (e) => { e.stopPropagation(); delete l.categories[k]; delete l.customCategoryLabels?.[k]; delete l.categorySymbols?.[k]; delete l.categoryNoFill?.[k]; delete l.categoryStroke?.[k]; if (l.categoryOrder) l.categoryOrder = l.categoryOrder.filter(ck => ck !== k); renderUI(); });
-        row.appendChild(delBtn); lg.appendChild(row);
+        sub.appendChild(swatch); sub.appendChild(labelSpan);
+        lg.appendChild(sub);
       });
     }
   }

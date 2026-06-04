@@ -2,7 +2,13 @@ function setBasemap(name) {
   const config = BASEMAPS[name];
   if (!config) return;
   if (tileLayer) { map.removeLayer(tileLayer); tileLayer = null; }
+  if (localMBLayer && map.hasLayer(localMBLayer)) { map.removeLayer(localMBLayer); }
+  if (name !== 'local') localMBFilename = '';
   if (name === 'none') { currentBasemap = name; return; }
+  if (name === 'local') {
+    if (localMBLayer) { map.addLayer(localMBLayer); currentBasemap = name; }
+    return;
+  }
   if (config.type === 'vector') {
     tileLayer = L.maplibreGL({ style: config.url, attribution: config.attribution }).addTo(map);
   } else {
@@ -295,16 +301,30 @@ function updateLabelStyleTag(layer) {
 }
 
 function rebuildLeafletLayer(layer, options = {}) {
+  var useDeck = window.deck && !layerHasPoints(layer);
+  if (useDeck) {
+    if (layer.leafletLayer) {
+      map.removeLayer(layer.leafletLayer);
+      layer.leafletLayer = null;
+    }
+    if (window.syncDeckLayers) window.syncDeckLayers();
+    if (options.renderUI !== false) renderUI();
+    return;
+  }
   const wasOnMap = layer.visible && map.hasLayer(layer.leafletLayer);
   map.removeLayer(layer.leafletLayer);
   layer.leafletLayer = createGeoJsonLayer(layer);
   if (wasOnMap) layer.leafletLayer.addTo(map);
   syncMapZIndex();
+  if (window.syncDeckLayers) window.syncDeckLayers();
   if (options.renderUI !== false) renderUI();
 }
 
 function refreshLayerStyle(layer) {
-  if (!layer?.leafletLayer) return;
+  if (!layer?.leafletLayer) {
+    if (window.syncDeckLayers) window.syncDeckLayers();
+    return;
+  }
   const geomTypes = getLayerGeometryTypes(layer.geojson);
   if (geomTypes.has('point')) {
     const opacity = layer.opacity ?? 0.4;
@@ -377,9 +397,15 @@ function createLayer({
     applyLayerClassification(layerObj);
   }
   updateLabelStyleTag(layerObj);
-  layerObj.leafletLayer = createGeoJsonLayer(layerObj);
-  if (layerObj.visible) layerObj.leafletLayer.addTo(map);
+  var useDeckForNew = window.deck && !layerHasPoints(layerObj);
+  if (useDeckForNew) {
+    layerObj.leafletLayer = null;
+  } else {
+    layerObj.leafletLayer = createGeoJsonLayer(layerObj);
+    if (layerObj.visible) layerObj.leafletLayer.addTo(map);
+  }
   layerStore.push(layerObj);
+  if (useDeckForNew && window.syncDeckLayers) window.syncDeckLayers();
   renderUI();
   syncMapZIndex();
   return layerObj;
@@ -395,8 +421,11 @@ function renameLayer(id, newName) {
 function toggleLayer(id) {
   const layer = layerStore.find(l => l.id === id);
   if (!layer) return;
-  if (layer.visible) { map.removeLayer(layer.leafletLayer); } else { layer.leafletLayer.addTo(map); }
   layer.visible = !layer.visible;
+  if (layer.leafletLayer) {
+    if (layer.visible) { layer.leafletLayer.addTo(map); } else { map.removeLayer(layer.leafletLayer); }
+  }
+  if (window.syncDeckLayers) window.syncDeckLayers();
   renderUI();
   syncMapZIndex();
 }
@@ -491,13 +520,14 @@ function moveLayer(index, direction) {
   const temp = layerStore[index];
   layerStore[index] = layerStore[targetIndex];
   layerStore[targetIndex] = temp;
+  if (window.syncDeckLayers) window.syncDeckLayers();
   renderUI();
   syncMapZIndex();
 }
 
 function syncMapZIndex() {
   layerStore.forEach(layer => {
-    if (layer.visible && layer.leafletLayer.bringToFront) layer.leafletLayer.bringToFront();
+    if (layer.visible && layer.leafletLayer && layer.leafletLayer.bringToFront) layer.leafletLayer.bringToFront();
   });
 }
 
@@ -507,6 +537,7 @@ function deleteLayer(layerId) {
   const layer = layerStore[idx];
   if (layer.leafletLayer && map.hasLayer(layer.leafletLayer)) map.removeLayer(layer.leafletLayer);
   layerStore.splice(idx, 1);
+  if (window.syncDeckLayers) window.syncDeckLayers();
   renderUI();
   syncMapZIndex();
 }

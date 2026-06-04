@@ -4,7 +4,8 @@ const BASEMAPS = {
   light: { type: 'vector', url: 'https://tiles.openfreemap.org/styles/positron', attribution: 'OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap' },
   streets: { type: 'vector', url: 'https://tiles.openfreemap.org/styles/liberty', attribution: 'OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap' },
   bright: { type: 'vector', url: 'https://tiles.openfreemap.org/styles/bright', attribution: 'OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap' },
-  satellite: { type: 'raster', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: '&copy; Esri, Maxar, Earthstar Geographics' }
+  satellite: { type: 'raster', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: '&copy; Esri, Maxar, Earthstar Geographics' },
+  local: { type: 'mbtiles', url: '', attribution: 'Local MBTiles' }
 };
 
 const COLOR_RAMPS = {

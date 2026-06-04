@@ -660,4 +660,38 @@ function renderUI() {
 
     legendDiv.appendChild(legendGroup);
   }
+
+  // Raster layers
+  rasterStore.forEach(function(r) {
+    var node = document.createElement('div');
+    node.className = 'layer-node';
+    node.style.borderLeft = '3px solid #64748b';
+    node.innerHTML = '<div class="layer-header"><div class="layer-title-wrapper"><input type="checkbox" class="layer-checkbox" ' + (r.visible ? 'checked' : '') + ' /><span class="layer-name-display">' + escapeHtml(r.name) + '</span></div><div class="reorder-btns"><button class="btn-delete-layer" title="Delete raster">✕</button></div></div>'
+      + '<div class="layer-controls"><div style="display:flex;justify-content:space-between;margin-bottom:2px;"><label>Opacity</label><span class="raster-opacity-value" style="font-size:10px;color:var(--accent);font-weight:bold;">' + Math.round((r.opacity || 1) * 100) + '%</span></div>'
+      + '<input type="range" class="raster-opacity" min="0" max="100" value="' + Math.round((r.opacity || 1) * 100) + '" style="width:100%;accent-color:var(--accent);" /></div>';
+    node.querySelector('.layer-checkbox').onchange = function() { toggleRasterLayer(r.id); };
+    node.querySelector('.btn-delete-layer').onclick = function() { removeRasterLayer(r.id); };
+    var opSlider = node.querySelector('.raster-opacity');
+    var opLabel = node.querySelector('.raster-opacity-value');
+    opSlider.addEventListener('input', function(e) {
+      var pct = parseInt(e.target.value, 10);
+      if (opLabel) opLabel.textContent = pct + '%';
+      updateRasterOpacity(r.id, pct / 100);
+    });
+    node.addEventListener('contextmenu', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      showCtxMenu([
+        { action: 'rename', icon: '✎', label: 'Rename', handler: function() { startRasterRename(r); } },
+        { action: 'delete', icon: '✕', label: 'Delete', handler: function() { removeRasterLayer(r.id); } }
+      ], e.clientX, e.clientY);
+    });
+    layersDiv.appendChild(node);
+
+    var rg = document.createElement('div');
+    rg.className = 'legend-group';
+    rg.style.borderLeft = '3px solid #64748b';
+    rg.style.paddingLeft = '8px';
+    rg.innerHTML = '<div class="legend-item" style="font-size:12px;">🖼 ' + escapeHtml(r.name) + '</div>';
+    legendDiv.appendChild(rg);
+  });
 }

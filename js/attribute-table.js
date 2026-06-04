@@ -18,7 +18,7 @@ function toggleAttrTable() {
     panel.style.maxHeight = '';
   }
   updateAttrTableTab();
-  setTimeout(() => { if (typeof map !== 'undefined' && map) map.invalidateSize(); }, 50);
+  setTimeout(() => { if (typeof map !== 'undefined' && map) map.invalidateSize(); }, 300);
 }
 
 function renderAttrTable() {
