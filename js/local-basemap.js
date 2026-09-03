@@ -1,6 +1,7 @@
 var localMBLayer = null;
 var localMBLoaded = false;
 var localMBFilename = '';
+var localMBBuffer = null;
 
 function queryTileData(db, z, x, y) {
   var tmsY = Math.pow(2, z) - 1 - y;
@@ -19,6 +20,7 @@ function loadLocalMBTiles(file) {
   return new Promise(function(resolve, reject) {
     var reader = new FileReader();
     reader.onload = function(ev) {
+      localMBBuffer = ev.target.result;
       initSqlJs({
         locateFile: function(f) { return 'https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/' + f; }
       }).then(function(SQL) {

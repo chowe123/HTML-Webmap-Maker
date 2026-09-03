@@ -44,6 +44,17 @@ function appendMakiGridHeader(shapeGrid) {
   shapeGrid.appendChild(h);
 }
 
+// Chunked ArrayBuffer -> base64 (safe for large MBTiles files).
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
 function compareCategoryKeys(a, b) {
   const labelA = a === '' ? '\uffff' : String(a);
   const labelB = b === '' ? '\uffff' : String(b);

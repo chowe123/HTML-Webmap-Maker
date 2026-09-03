@@ -222,9 +222,18 @@ function exportLayerGeoJSON(layer) {
 function exportHTML() {
   syncProjectMetaFromUI();
   const center = map.getCenter();
+  // Bake the local basemap into the file, but only when it is the active
+  // basemap — otherwise the export stays small.
+  let mbtilesDataUrl = '';
+  if (currentBasemap === 'local' && typeof localMBBuffer !== 'undefined' && localMBBuffer) {
+    try {
+      mbtilesDataUrl = arrayBufferToBase64(localMBBuffer);
+    } catch (e) { console.warn('Could not embed local basemap, falling back to file reference:', e); mbtilesDataUrl = ''; }
+  }
   const exportData = {
     title: projectTitle, dataNote, searchMode, basemap: currentBasemap,
     mbtilesFilename: currentBasemap === 'local' ? localMBFilename : '',
+    mbtilesDataUrl: mbtilesDataUrl,
     mapView: { lat: center.lat, lng: center.lng, zoom: map.getZoom() },
     layers: layerStore.map(l => ({
       name: l.name, geojson: l.geojson, color: l.color, strokeColor: l.strokeColor || l.color,

@@ -358,9 +358,18 @@ function showMBTilesPrompt() {
   lbl.style.cssText = 'position:absolute;bottom:30px;left:50%;transform:translateX(-50%);background:#1e293b;color:#f8fafc;padding:14px 28px;border-radius:10px;border:2px dashed #3b82f6;font-size:15px;font-weight:600;z-index:1000;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.5);text-align:center;white-space:nowrap;';
   document.getElementById('map').appendChild(lbl);
 }
+function base64ToBuffer(b64) {
+  var raw = atob(b64);
+  var buf = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+  return buf.buffer;
+}
 var exBasemap = exportedData.basemap || 'none';
 if (exBasemap === 'local') {
-  if (exportedData.mbtilesFilename) tryLoadMBTiles(exportedData.mbtilesFilename);
+  if (exportedData.mbtilesDataUrl) {
+    try { loadMBTilesBuffer(base64ToBuffer(exportedData.mbtilesDataUrl)); }
+    catch (e) { showMBTilesPrompt(); }
+  } else if (exportedData.mbtilesFilename) tryLoadMBTiles(exportedData.mbtilesFilename);
 } else if (exBasemap !== 'none') {
 ${currentBasemap === 'none' || currentBasemap === 'local' ? '' : `
 var bmCfg = { type: '${BASEMAPS[currentBasemap].type}', url: '${BASEMAPS[currentBasemap].url}', attribution: '${BASEMAPS[currentBasemap].attribution}' };
