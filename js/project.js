@@ -6,6 +6,7 @@ function syncProjectMetaFromUI() {
 function applyProjectMetaToUI() {
   document.getElementById('projectTitle').value = projectTitle;
   document.getElementById('dataNote').value = dataNote;
+  if (typeof syncInfoPanel === 'function') syncInfoPanel();
 }
 
 function handleFile(e) {

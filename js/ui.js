@@ -498,6 +498,9 @@ function renderUI() {
 
     layersDiv.appendChild(div);
 
+    // A hidden layer is hidden in the legend too.
+    if (layer.visible === false) continue;
+
     const legendGroup = document.createElement('div');
     legendGroup.className = 'legend-group';
     legendGroup.draggable = true;
@@ -687,6 +690,7 @@ function renderUI() {
     });
     layersDiv.appendChild(node);
 
+    if (!r.visible) return;
     var rg = document.createElement('div');
     rg.className = 'legend-group';
     rg.style.borderLeft = '3px solid #64748b';

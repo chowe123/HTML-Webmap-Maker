@@ -63,6 +63,16 @@ function getFeatureStyle(layerObj, feature) {
 function getSymbolSvgShape(type, fill, strokeAttr) {
   const f = fill || '#3b82f6';
   const s = strokeAttr || '';
+  if (typeof type === 'string' && type.indexOf('maki-') === 0 && typeof getMakiSvgShape === 'function') {
+    var sc = '#ffffff';
+    var swd = 2;
+    var m1 = s.match(/stroke="([^"]+)"/);
+    if (m1 && m1[1] !== 'none') sc = m1[1];
+    var m2 = s.match(/stroke-width="([\d.]+)"/);
+    if (m2) swd = parseFloat(m2[1]);
+    if (s.indexOf('stroke="none"') !== -1) swd = 0;
+    return getMakiSvgShape(type, f, sc, swd);
+  }
   switch (type) {
     case 'square': return `<rect x="2" y="2" width="16" height="16" rx="2" fill="${f}"${s}/>`;
     case 'triangle': return `<polygon points="10,2 18,17 2,17" fill="${f}"${s} stroke-linejoin="round"/>`;
@@ -155,10 +165,10 @@ function buildFeaturePopupHtml(feature, layer) {
   if (layer.popupEnabled === false) return '';
   const props = feature.properties || {};
   const titleRaw = layer.popupTitle?.trim();
-  const title = escapeHtml(titleRaw ? replacePopupTokens(titleRaw, feature, layer) : layer.name);
+  const title = titleRaw ? renderPopupRichText(titleRaw, feature, layer) : escapeHtml(layer.name);
   const template = layer.popupTemplate?.trim();
   if (template) {
-    const body = template.split('\n').map(line => escapeHtml(replacePopupTokens(line, feature, layer))).join('<br/>');
+    const body = template.split('\n').map(line => renderPopupRichText(line, feature, layer)).join('<br/>');
     return `<div class="gis-feature-popup" style="font-size:12px;font-family:sans-serif;line-height:1.45;"><b style="color:#3b82f6;font-size:13px;display:block;margin-bottom:6px;">${title}</b><div style="color:#f8fafc;">${body}</div></div>`;
   }
   const fields = getPopupFieldsForFeature(layer, feature);
@@ -350,7 +360,7 @@ function scheduleLayerStyleRefresh(layer, key = 'default') {
 }
 
 function createLayer({
-  name, geojson, id, color, strokeColor, weight = 2, opacity = 0.4,
+  name, geojson, id, color, strokeColor, weight = 2, opacity,
   pointSymbolType = 'circle', pointSize = 10, pointStrokeColor = null, pointStrokeWidth = 2, customSymbolUrl = null,
   popupEnabled = false, popupTitle = '', popupFields = null, popupTemplate = '', popupShowLabels = true,
   visible = true, symbologyType = 'single', symbologyField = '', categories = {}, categorySymbols = {},
@@ -368,15 +378,21 @@ function createLayer({
     if (!isNaN(num) && num > layerCounter) layerCounter = num;
   } else { layerId = 'layer_' + (++layerCounter); }
   const defaultColor = color || getRandomColor();
+  // Default point symbology: random fill colour, black outline, fully opaque.
+  const _geomTypes = getLayerGeometryTypes(geojson);
+  const _hasPoints = _geomTypes.has('point');
+  const _pointOnly = _geomTypes.size === 1 && _hasPoints;
+  const layerOpacity = opacity ?? (_pointOnly ? 1 : 0.4);
+  const defaultPointStroke = pointStrokeColor || (_hasPoints ? '#000000' : null);
   const fields = extractFields(geojson);
   const layerObj = {
     id: layerId, name, geojson, leafletLayer: null, color: defaultColor, strokeColor: strokeColor || defaultColor,
-    weight, opacity: opacity ?? 0.4,
+    weight, opacity: layerOpacity,
     pointSymbolType: pointSymbolType || 'circle', pointSize: pointSize ?? 10,
-    pointStrokeColor: pointStrokeColor || null, pointStrokeWidth: pointStrokeWidth ?? 2, customSymbolUrl: customSymbolUrl || null,
+    pointStrokeColor: defaultPointStroke || null, pointStrokeWidth: pointStrokeWidth ?? 2, customSymbolUrl: customSymbolUrl || null,
     popupEnabled: popupEnabled !== false, popupTitle: popupTitle || '', popupFields: popupFields === undefined ? null : popupFields,
-    popupTemplate: popupTemplate || '', popupShowLabels: popupShowLabels !== false, visible,
-    fields, geometryTypes: getLayerGeometryTypes(geojson),
+    popupTemplate: popupTemplate || '',     popupShowLabels: popupShowLabels !== false, visible,
+    fields, geometryTypes: _geomTypes,
     symbologyType, symbologyField, categories: { ...categories },
     categorySymbols: { ...categorySymbols }, categorySortMode: categorySortMode || 'asc', categoryOrder: [...categoryOrder],
     classifyMethod: classifyMethod || '', classCount: classCount || 5,
@@ -510,8 +526,8 @@ function getLegendPointSwatch(layer, color, catKey) {
   if (type === 'custom' && customUrl) {
     return `<img src="${customUrl}" alt="" style="width:12px;height:12px;object-fit:contain;border-radius:2px;opacity:${layer.opacity ?? 1};" />`;
   }
-  const html = buildPointSymbolHtml(type, color, stroke, 6, sw);
-  return `<span style="display:inline-flex;width:12px;height:12px;align-items:center;justify-content:center;overflow:hidden;opacity:${layer.opacity ?? 1};">${html}</span>`;
+  const html = buildPointSymbolHtml(type, color, stroke, 9, sw);
+  return `<span style="display:inline-flex;width:18px;height:18px;align-items:center;justify-content:center;overflow:hidden;opacity:${layer.opacity ?? 1};">${html}</span>`;
 }
 
 function moveLayer(index, direction) {

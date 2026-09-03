@@ -394,7 +394,7 @@ function openPopupSettings(layer) {
           <div style="margin-bottom:12px;">
             <label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Popup title</label>
             <input type="text" class="ps-title" value="${escapeHtml(layer.popupTitle || '')}" placeholder="${escapeHtml(layer.name)} or {fieldName}" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;" />
-            <span style="font-size:10px;color:var(--text-muted);margin-top:2px;display:block;">Leave blank for layer name. Use {attribute} for feature values.</span>
+            <span style="font-size:10px;color:var(--text-muted);margin-top:2px;display:block;">Leave blank for layer name. Use {attribute} for feature values. Formatting: **bold**, *italic*, __underline__.</span>
           </div>
           <div style="margin-bottom:12px;">
             <label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Attributes to show</label>
@@ -407,7 +407,7 @@ function openPopupSettings(layer) {
           <div style="margin-bottom:12px;">
             <label style="display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;">Custom template (optional)</label>
             <textarea class="ps-template" rows="3" placeholder="e.g. Name: {name}&#10;Population: {pop}" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;resize:vertical;box-sizing:border-box;">${escapeHtml(layer.popupTemplate || '')}</textarea>
-            <span style="font-size:10px;color:var(--text-muted);margin-top:2px;display:block;">Overrides attribute list. One line per row. Use {fieldName} tokens.</span>
+            <span style="font-size:10px;color:var(--text-muted);margin-top:2px;display:block;">Overrides attribute list. One line per row. Use {fieldName} tokens. Formatting: **bold**, *italic*, __underline__.</span>
           </div>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;color:var(--text-primary);">
             <input type="checkbox" class="ps-show-labels" ${layer.popupShowLabels !== false ? 'checked' : ''} style="accent-color:var(--accent);" />
@@ -611,7 +611,7 @@ function openCategorySymbolEditor(layer, catKey) {
 
   const shapeGrid = document.createElement('div');
   shapeGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:4px;margin-bottom:14px;';
-  SYMBOL_SHAPES.forEach(sh => {
+  function makeShapeBtn(sh) {
     const btn = document.createElement('button');
     btn.dataset.shape = sh.id; btn.title = sh.label;
     btn.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 2px;cursor:pointer;border:2px solid transparent;border-radius:6px;background:rgba(15,23,42,0.6);transition:all 0.15s;';
@@ -625,8 +625,11 @@ function openCategorySymbolEditor(layer, catKey) {
       shapeGrid.querySelectorAll('button').forEach(b => b.style.borderColor = 'transparent');
       btn.style.borderColor = '#3b82f6'; curType = sh.id; updateCustomRow(); applySettings(); updatePreview();
     });
-    shapeGrid.appendChild(btn);
-  });
+    return btn;
+  }
+  SYMBOL_SHAPES.filter(function(sh) { return !sh.group; }).forEach(function(sh) { shapeGrid.appendChild(makeShapeBtn(sh)); });
+  appendMakiGridHeader(shapeGrid);
+  SYMBOL_SHAPES.filter(function(sh) { return sh.group === 'maki'; }).forEach(function(sh) { shapeGrid.appendChild(makeShapeBtn(sh)); });
   panel.appendChild(shapeGrid);
 
   const customRow = document.createElement('div');
@@ -808,7 +811,7 @@ function openLayerSymbolEditor(layer) {
 
   const shapeGrid = document.createElement('div');
   shapeGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:4px;margin-bottom:14px;';
-  SYMBOL_SHAPES.forEach(sh => {
+  function makeLayerShapeBtn(sh) {
     const btn = document.createElement('button');
     btn.dataset.shape = sh.id; btn.title = sh.label;
     btn.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 2px;cursor:pointer;border:2px solid transparent;border-radius:6px;background:rgba(15,23,42,0.6);transition:all 0.15s;';
@@ -822,8 +825,11 @@ function openLayerSymbolEditor(layer) {
       shapeGrid.querySelectorAll('button').forEach(b => b.style.borderColor = 'transparent');
       btn.style.borderColor = '#3b82f6'; curType = sh.id; updateCustomRow(); applySettings(); updatePreview();
     });
-    shapeGrid.appendChild(btn);
-  });
+    return btn;
+  }
+  SYMBOL_SHAPES.filter(function(sh) { return !sh.group; }).forEach(function(sh) { shapeGrid.appendChild(makeLayerShapeBtn(sh)); });
+  appendMakiGridHeader(shapeGrid);
+  SYMBOL_SHAPES.filter(function(sh) { return sh.group === 'maki'; }).forEach(function(sh) { shapeGrid.appendChild(makeLayerShapeBtn(sh)); });
   panel.appendChild(shapeGrid);
 
   const customRow = document.createElement('div');

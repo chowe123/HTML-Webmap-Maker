@@ -2,6 +2,48 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Rich text for custom popup titles/templates. Supports **bold**, *italic* and
+// __underline__ markup. {field} tokens are substituted AFTER formatting via
+// placeholders, so underscores/asterisks inside attribute values or field
+// names can never be mistaken for markup. Values are HTML-escaped on insert.
+function renderPopupRichText(raw, feature, layer) {
+  if (!raw) return '';
+  const props = (feature && feature.properties) || {};
+  const layerName = (layer && layer.name) || '';
+  const PH = '\u0001';
+  const keys = [];
+  let s = escapeHtml(String(raw)).replace(/\{([^}]+)\}/g, function(match, key) {
+    keys.push(key.trim());
+    return PH + (keys.length - 1) + PH;
+  });
+  s = s
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/__(.+?)__/g, '<u>$1</u>')
+    .replace(/\*(.+?)\*/g, '<i>$1</i>');
+  s = s.replace(/\u0001(\d+)\u0001/g, function(match, idx) {
+    const key = keys[parseInt(idx, 10)];
+    if (key === 'layerName') return escapeHtml(layerName);
+    if (Object.prototype.hasOwnProperty.call(props, key)) {
+      const v = props[key];
+      return v === null || v === undefined ? '' : escapeHtml(String(v));
+    }
+    return '{' + escapeHtml(key) + '}';
+  });
+  return s;
+}
+
+// Inserts a full-width "Maki icons" section header into a symbol picker grid
+// when the Maki library is registered. No-op if there are no Maki shapes.
+function appendMakiGridHeader(shapeGrid) {
+  if (!shapeGrid || typeof SYMBOL_SHAPES === 'undefined') return;
+  const hasMaki = SYMBOL_SHAPES.some(function(sh) { return sh.group === 'maki'; });
+  if (!hasMaki) return;
+  const h = document.createElement('div');
+  h.textContent = 'Maki icons';
+  h.style.cssText = 'grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text-muted,#64748b);text-transform:uppercase;letter-spacing:0.5px;margin-top:8px;';
+  shapeGrid.appendChild(h);
+}
+
 function compareCategoryKeys(a, b) {
   const labelA = a === '' ? '\uffff' : String(a);
   const labelB = b === '' ? '\uffff' : String(b);

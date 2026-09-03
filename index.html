@@ -1247,6 +1247,102 @@
     margin: 4px 0;
   }
 
+  /* ===== INFO PANEL (data note) ===== */
+  #infoBtn {
+    position: absolute;
+    top: 76px;
+    right: 10px;
+    z-index: 1000;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 17px;
+    font-weight: 700;
+    font-family: Georgia, serif;
+    font-style: italic;
+    cursor: pointer;
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  #infoBtn:hover {
+    border-color: var(--accent);
+    color: #93c5fd;
+  }
+  #infoPanel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 330px;
+    max-width: 85%;
+    z-index: 999;
+    background: rgba(15, 23, 42, 0.97);
+    backdrop-filter: blur(8px);
+    border-left: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(0);
+    transition: transform 0.25s ease;
+  }
+  #infoPanel.hidden {
+    transform: translateX(105%);
+  }
+  .info-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+  }
+  #infoPanelTitle {
+    flex: 1;
+    min-width: 0;
+    font-family: 'Outfit', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #infoClose {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  #infoClose:hover {
+    color: var(--text-primary);
+    background: rgba(255,255,255,0.1);
+  }
+  #infoPanelBody {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #infoPanelBody .info-empty {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
   /* ===== LAYOUT MODE ===== */
   #map-mode { flex: 1; display: flex; min-width: 0; height: 100vh; }
   #map-mode.hidden { display: none; }
@@ -1790,6 +1886,14 @@
 
 <div id="map-wrap">
   <div id="map"></div>
+  <button id="infoBtn" title="About this map">i</button>
+  <div id="infoPanel" class="hidden">
+    <div class="info-panel-header">
+      <span id="infoPanelTitle">About this map</span>
+      <button id="infoClose" title="Close">&times;</button>
+    </div>
+    <div id="infoPanelBody"></div>
+  </div>
   <div class="ctx-menu" id="ctxMenu"></div>
   <div id="attr-table-panel">
     <div class="attr-resize-handle"></div>
@@ -1834,12 +1938,13 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
-<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js"></script>
 <script src="https://unpkg.com/shpjs/dist/shp.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
 <script src="js/config.js"></script>
+<script src="js/maki.js"></script>
 <script src="js/state.js"></script>
 <script src="js/helpers.js"></script>
 <script src="js/selection.js"></script>

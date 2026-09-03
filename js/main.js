@@ -13,6 +13,36 @@ setBasemap('none');
 
 document.getElementById('projectTitle').addEventListener('input', syncProjectMetaFromUI);
 document.getElementById('dataNote').addEventListener('input', syncProjectMetaFromUI);
+document.getElementById('projectTitle').addEventListener('input', syncInfoPanel);
+document.getElementById('dataNote').addEventListener('input', syncInfoPanel);
+document.getElementById('infoBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('infoPanel').classList.toggle('hidden');
+});
+document.getElementById('infoClose').addEventListener('click', () => {
+  document.getElementById('infoPanel').classList.add('hidden');
+});
+syncInfoPanel();
+
+function syncInfoPanel() {
+  const titleEl = document.getElementById('infoPanelTitle');
+  const bodyEl = document.getElementById('infoPanelBody');
+  if (!titleEl || !bodyEl) return;
+  const titleInput = document.getElementById('projectTitle');
+  const noteInput = document.getElementById('dataNote');
+  const title = (titleInput && titleInput.value.trim()) || 'About this map';
+  const note = (noteInput && noteInput.value.trim()) || '';
+  titleEl.textContent = title;
+  bodyEl.innerHTML = '';
+  if (note) {
+    bodyEl.textContent = note;
+  } else {
+    const em = document.createElement('span');
+    em.className = 'info-empty';
+    em.textContent = 'No data note yet. Add one under Map Settings > Data note.';
+    bodyEl.appendChild(em);
+  }
+}
 document.getElementById('fileInput').addEventListener('change', handleFile);
 
 

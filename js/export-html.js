@@ -1,9 +1,25 @@
 function generateHTML(data) {
   const pageTitle = escapeHtml(data.title || 'Interactive Map');
   const headerTitle = escapeHtml(data.title || 'Interactive Map Maker');
-  const dataNoteHtml = data.dataNote
-    ? `<div class="card data-note-card"><div class="card-title">Data Note</div><p class="data-note-text">${escapeHtml(data.dataNote).replace(/\n/g, '<br>')}</p></div>`
+  const infoBodyHtml = data.dataNote
+    ? escapeHtml(data.dataNote).replace(/\n/g, '<br>')
     : '';
+  const infoPanelHtml = data.dataNote
+    ? `<button id="infoBtn" title="About this map">i</button>
+       <div id="infoPanel" class="hidden">
+         <div class="info-panel-header"><span>${headerTitle}</span><button id="infoClose" title="Close">&times;</button></div>
+         <div id="infoPanelBody">${infoBodyHtml}</div>
+       </div>`
+    : '';
+  const usedMaki = {};
+  function collectMaki(t) {
+    if (t && t.indexOf('maki-') === 0 && typeof MAKI_ICONS !== 'undefined' && MAKI_ICONS[t] && !usedMaki[t]) usedMaki[t] = MAKI_ICONS[t].body;
+  }
+  (data.layers || []).forEach(function(l) {
+    collectMaki(l.pointSymbolType);
+    Object.keys(l.categorySymbols || {}).forEach(function(k) { var cs = l.categorySymbols[k]; if (cs) collectMaki(cs.pointSymbolType); });
+  });
+  data.maki = usedMaki;
 
 return `<!DOCTYPE html>
 <html lang="en">
@@ -134,6 +150,39 @@ return `<!DOCTYPE html>
   .gis-point-symbol-icon, .gis-custom-point-icon { background: transparent !important; border: none !important; }
   .gis-point-symbol-icon svg { display: block; }
   .layer-label { background: none !important; border: none !important; box-shadow: none !important; font-weight: bold; padding: 1px 3px !important; line-height: 1.2 !important; white-space: nowrap; }
+  #infoBtn {
+    position: absolute; top: 76px; right: 10px; z-index: 1000;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #0f172a; border: 1px solid rgba(255,255,255,0.08);
+    color: #f8fafc; font-size: 17px; font-weight: 700; font-family: Georgia, serif; font-style: italic;
+    cursor: pointer; box-shadow: var(--shadow-lg);
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  #infoBtn:hover { border-color: var(--accent); color: #93c5fd; }
+  #infoPanel {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 330px; max-width: 85%; z-index: 999;
+    background: rgba(15,23,42,0.97); border-left: 1px solid rgba(255,255,255,0.08);
+    box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
+    transform: translateX(0); transition: transform 0.25s ease;
+    font-family: 'Inter', sans-serif;
+  }
+  #infoPanel.hidden { transform: translateX(105%); }
+  .info-panel-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
+  }
+  .info-panel-header span {
+    flex: 1; min-width: 0; font-family: 'Outfit', sans-serif; font-size: 15px; font-weight: 700; color: #f8fafc;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #infoClose {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #64748b;
+    width: 26px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1; flex-shrink: 0;
+  }
+  #infoClose:hover { color: #f8fafc; background: rgba(255,255,255,0.1); }
+  #infoPanelBody {
+    flex: 1; overflow-y: auto; padding: 16px; font-size: 12px; line-height: 1.6; color: #94a3b8; word-break: break-word;
+  }
 </style>
 </head>
 <body>
@@ -143,28 +192,53 @@ return `<!DOCTYPE html>
     <div class="logo-title">${headerTitle}</div>
   </div>
   <div class="sidebar-content">
-    ${dataNoteHtml}
-    <div class="card">
-      <div class="card-title">Layers</div>
-      <div id="layers" style="display:flex; flex-direction:column; gap:8px;"></div>
-    </div>
     <div class="card">
       <div class="card-title">Legend</div>
       <div id="legend" style="padding-bottom: 16px;"></div>
     </div>
+    <div class="card">
+      <div class="card-title">Layers</div>
+      <div id="layers" style="display:flex; flex-direction:column; gap:8px;"></div>
+    </div>
   </div>
 </div>
 
-<div id="map"></div>
+<div id="map">${infoPanelHtml}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
-<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
 <script>
 const exportedData = ${JSON.stringify(data)};
 const mv = exportedData.mapView || { lat: 43.7, lng: -79.4, zoom: 10 };
 const map = L.map('map', { renderer: L.canvas() }).setView([mv.lat, mv.lng], mv.zoom);
+var _remoteBasemap = null;
+var _localBasemap = null;
+var _activeBasemap = 'none';
+function showBasemap(which) {
+  if (which === 'local') {
+    if (!_localBasemap) { showMBTilesPrompt(); return; }
+    if (_remoteBasemap && map.hasLayer(_remoteBasemap)) map.removeLayer(_remoteBasemap);
+    if (!map.hasLayer(_localBasemap)) _localBasemap.addTo(map);
+    _activeBasemap = 'local';
+  } else {
+    if (!_remoteBasemap) return;
+    if (_localBasemap && map.hasLayer(_localBasemap)) map.removeLayer(_localBasemap);
+    if (!map.hasLayer(_remoteBasemap)) _remoteBasemap.addTo(map);
+    _activeBasemap = 'remote';
+  }
+  updateBasemapUI();
+}
+function updateBasemapUI() {
+  var b = document.getElementById('_bm_toggle');
+  if (!b) return;
+  var r = b.querySelector('#_bm_remote_btn'), l = b.querySelector('#_bm_local_btn');
+  function paint(btn, on) { if (btn) btn.style.background = on ? '#3b82f6' : 'transparent'; }
+  paint(r, _activeBasemap === 'remote');
+  paint(l, _activeBasemap === 'local');
+}
+function isOffline() { return typeof navigator !== 'undefined' && navigator.onLine === false; }
 
 function loadMBTilesBuffer(buf) {
   initSqlJs({ locateFile: function(f) { return 'https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/' + f; } }).then(function(SQL) {
@@ -201,7 +275,8 @@ function loadMBTilesBuffer(buf) {
           return tile;
         }
       }))({ minZoom: 0, maxZoom: 22, maxNativeZoom: maxZ, tileSize: 256, noWrap: true });
-      layer.addTo(map);
+      _localBasemap = layer;
+      showBasemap('local');
       doneMBTiles(null, buf);
     } catch(e) { doneMBTiles(e, null); }
   }).catch(function(e) { doneMBTiles(e, null); });
@@ -289,11 +364,18 @@ if (exBasemap === 'local') {
 } else if (exBasemap !== 'none') {
 ${currentBasemap === 'none' || currentBasemap === 'local' ? '' : `
 var bmCfg = { type: '${BASEMAPS[currentBasemap].type}', url: '${BASEMAPS[currentBasemap].url}', attribution: '${BASEMAPS[currentBasemap].attribution}' };
-if (bmCfg.type === 'vector') {
-  L.maplibreGL({ style: bmCfg.url, attribution: bmCfg.attribution }).addTo(map);
+if (isOffline()) {
+  showMBTilesPrompt();
+} else if (bmCfg.type === 'vector') {
+  _remoteBasemap = L.maplibreGL({ style: bmCfg.url, attribution: bmCfg.attribution });
+  _remoteBasemap.addTo(map);
 } else {
-  L.tileLayer(bmCfg.url, { attribution: bmCfg.attribution }).addTo(map);
+  _remoteBasemap = L.tileLayer(bmCfg.url, { attribution: bmCfg.attribution });
+  _remoteBasemap.addTo(map);
+  _remoteBasemap.on('tileerror', function() { showMBTilesPrompt(); });
 }
+_activeBasemap = _remoteBasemap ? 'remote' : 'local';
+if (isOffline()) updateBasemapUI();
 `}
 }
 
@@ -434,6 +516,18 @@ function getExportedPointStrokeColor(l) {
 function getExportedSymbolSvgShape(type, fill, strokeAttr) {
   var f = fill || '#3b82f6';
   var s = strokeAttr || '';
+  if (typeof type === 'string' && type.indexOf('maki-') === 0 && typeof exportedData !== 'undefined' && exportedData.maki && exportedData.maki[type]) {
+    var sc = '#ffffff';
+    var swd = 2;
+    var m1 = s.match(/stroke="([^"]+)"/);
+    if (m1 && m1[1] !== 'none') sc = m1[1];
+    var m2 = s.match(/stroke-width="([\\d.]+)"/);
+    if (m2) swd = parseFloat(m2[1]);
+    if (s.indexOf('stroke="none"') !== -1) swd = 0;
+    var ring = swd > 0 ? ' stroke="' + sc + '" stroke-width="' + swd + '"' : '';
+    return '<circle cx="10" cy="10" r="8.5" fill="#ffffff"' + ring + '/>'
+      + '<g transform="translate(4.6,4.6) scale(0.72)" fill="' + f + '">' + exportedData.maki[type] + '</g>';
+  }
   switch (type) {
     case 'square': return '<rect x="2" y="2" width="16" height="16" rx="2" fill="' + f + '"' + s + '/>';
     case 'triangle': return '<polygon points="10,2 18,17 2,17" fill="' + f + '"' + s + ' stroke-linejoin="round"/>';
@@ -521,6 +615,32 @@ function escapeExportedHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function renderExportedRichText(raw, feature, layerConfig) {
+  if (!raw) return '';
+  var props = (feature && feature.properties) || {};
+  var layerName = (layerConfig && layerConfig.name) || '';
+  var PH = '\u0001';
+  var keys = [];
+  var s = escapeExportedHtml(String(raw)).replace(/\\{([^}]+)\\}/g, function(match, key) {
+    keys.push(key.trim());
+    return PH + (keys.length - 1) + PH;
+  });
+  s = s
+    .replace(/\\*\\*(.+?)\\*\\*/g, '<b>$1</b>')
+    .replace(/__(.+?)__/g, '<u>$1</u>')
+    .replace(/\\*(.+?)\\*/g, '<i>$1</i>');
+  s = s.replace(/\u0001(\\d+)\u0001/g, function(match, idx) {
+    var key = keys[parseInt(idx, 10)];
+    if (key === 'layerName') return escapeExportedHtml(layerName);
+    if (Object.prototype.hasOwnProperty.call(props, key)) {
+      var v = props[key];
+      return v === null || v === undefined ? '' : escapeExportedHtml(String(v));
+    }
+    return '{' + escapeExportedHtml(key) + '}';
+  });
+  return s;
+}
+
 function replaceExportedPopupTokens(str, feature, layerConfig) {
   if (!str) return '';
   const props = feature.properties || {};
@@ -538,10 +658,10 @@ function buildExportedPopupHtml(feature, layerConfig) {
   if (layerConfig.popupEnabled === false) return '';
   const props = feature.properties || {};
   const titleRaw = layerConfig.popupTitle && layerConfig.popupTitle.trim();
-  const title = escapeExportedHtml(titleRaw ? replaceExportedPopupTokens(titleRaw, feature, layerConfig) : layerConfig.name);
+  const title = titleRaw ? renderExportedRichText(titleRaw, feature, layerConfig) : escapeExportedHtml(layerConfig.name);
   const template = layerConfig.popupTemplate && layerConfig.popupTemplate.trim();
   if (template) {
-    const body = template.split('\\n').map(function(line) { return escapeExportedHtml(replaceExportedPopupTokens(line, feature, layerConfig)); }).join('<br/>');
+    const body = template.split('\\n').map(function(line) { return renderExportedRichText(line, feature, layerConfig); }).join('<br/>');
     return '<div class="gis-feature-popup" style="font-size:12px;font-family:sans-serif;line-height:1.45;"><b style="color:#3b82f6;font-size:13px;display:block;margin-bottom:6px;">' + title + '</b><div style="color:#f8fafc;">' + body + '</div></div>';
   }
   let fields = Object.keys(props);
@@ -606,6 +726,16 @@ function toggleExportedSelection(l, feature) {
   if (!selectedFeatures[l.name]) selectedFeatures[l.name] = new Set();
   selectedFeatures[l.name].add(idx);
 }
+function deselectExportedFeature(l, feature) {
+  var features = l.geojson.features || [];
+  var idx = features.indexOf(feature);
+  if (idx < 0) return;
+  var set = selectedFeatures[l.name];
+  if (!set || !set.has(idx)) return;
+  set.delete(idx);
+  var wrapper = layers.find(function(x) { return x.name === l.name; });
+  updateExportedLayerStyles(wrapper);
+}
 function updateExportedLayerStyles(l) {
   if (!l || !l.layer) return;
   l.layer.setStyle(l.layer.options.style);
@@ -625,7 +755,11 @@ exportedData.layers.forEach(l => {
       leafletLayer.on('click', function(e) {
         L.DomEvent.stopPropagation(e);
         toggleExportedSelection(l, f);
-        updateExportedLayerStyles(l);
+        var wrapper = layers.find(function(x) { return x.name === l.name; });
+        updateExportedLayerStyles(wrapper);
+      });
+      leafletLayer.on('popupclose', function() {
+        deselectExportedFeature(l, f);
       });
       if (l.popupEnabled === false) { leafletLayer.unbindPopup(); }
       else { const html = buildExportedPopupHtml(f, l); if (html) leafletLayer.bindPopup(html); else leafletLayer.unbindPopup(); }
@@ -657,15 +791,25 @@ function renderUI() {
     const l = layers[i];
     const d = document.createElement("div"); d.className = "layer-node";
     d.innerHTML = \`<div class="layer-left"><input type="checkbox" \${map.hasLayer(l.layer) ? "checked" : ""} style="accent-color:var(--accent);" /><span class="layer-title">\${l.name}</span></div>\`;
-    d.querySelector("input").onchange = (e) => { if (e.target.checked) map.addLayer(l.layer); else map.removeLayer(l.layer); syncMapZIndex(); };
+    d.querySelector("input").onchange = (e) => { if (e.target.checked) map.addLayer(l.layer); else map.removeLayer(l.layer); syncMapZIndex(); renderUI(); };
     ld.appendChild(d);
+    if (!map.hasLayer(l.layer)) continue;
     const legTitle = document.createElement("div"); legTitle.className = "legend-item"; legTitle.innerText = l.name; lg.appendChild(legTitle);
     if (l.showLegend === false) { /* skip legend for this layer */ }
     else if (l.symbologyType === 'single') {
       const sub = document.createElement("div"); sub.className = "legend-subitem";
-      const swatch = document.createElement('span'); swatch.style.cssText = 'background:' + l.color + ';width:12px;height:12px;display:inline-block;border-radius:3px;flex-shrink:0;';
-      const text = document.createElement('span'); text.textContent = ' All features';
-      sub.appendChild(swatch); sub.appendChild(text); lg.appendChild(sub);
+      if (layerDataHasPoints(l)) {
+        const symHtml = buildExportedPointSymbolHtml(l.pointSymbolType || 'circle', l.color, getExportedPointStrokeColor(l), 9, l.pointStrokeWidth ?? 2);
+        const symWrap = document.createElement('span');
+        symWrap.style.cssText = 'display:inline-flex;width:18px;height:18px;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;';
+        symWrap.innerHTML = symHtml;
+        const text = document.createElement('span'); text.textContent = ' All features';
+        sub.appendChild(symWrap); sub.appendChild(text); lg.appendChild(sub);
+      } else {
+        const swatch = document.createElement('span'); swatch.style.cssText = 'background:' + l.color + ';width:12px;height:12px;display:inline-block;border-radius:3px;flex-shrink:0;';
+        const text = document.createElement('span'); text.textContent = ' All features';
+        sub.appendChild(swatch); sub.appendChild(text); lg.appendChild(sub);
+      }
     } else if (l.symbologyType === 'categorized' && l.symbologyField) {
       var hiddenKeys = l.hiddenCatKeys || [];
       getOrderedCategoryKeys(l).forEach(function(k) {
@@ -766,6 +910,39 @@ const MapSearchControl = L.Control.extend({
   }
 });
 new MapSearchControl().addTo(map);
+(function() {
+  var btn = document.getElementById('infoBtn');
+  var panel = document.getElementById('infoPanel');
+  if (!btn || !panel) return;
+  if (window.L && L.DomEvent) { L.DomEvent.disableClickPropagation(btn); L.DomEvent.disableClickPropagation(panel); L.DomEvent.disableScrollPropagation(panel); }
+  btn.addEventListener('click', function(e) { if (e) e.stopPropagation(); panel.classList.toggle('hidden'); });
+  var close = document.getElementById('infoClose');
+  if (close) close.addEventListener('click', function() { panel.classList.add('hidden'); });
+})();
+${currentBasemap === 'none' || currentBasemap === 'local' ? '' : `
+(function() {
+  var bmName = ${JSON.stringify({dark:'Dark', light:'Light', streets:'Streets', bright:'Bright', satellite:'Satellite'}[currentBasemap] || currentBasemap)};
+  var c = document.createElement('div');
+  c.id = '_bm_toggle';
+  c.style.cssText = 'position:absolute;bottom:30px;right:10px;z-index:1000;display:flex;gap:4px;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:3px;box-shadow:0 4px 16px rgba(0,0,0,0.45);font-family:system-ui,sans-serif;';
+  var r = document.createElement('button');
+  r.id = '_bm_remote_btn';
+  r.type = 'button';
+  r.textContent = bmName;
+  r.style.cssText = 'border:0;background:transparent;color:#e2e8f0;font-size:12px;font-weight:600;padding:6px 10px;border-radius:6px;cursor:pointer;';
+  var l = document.createElement('button');
+  l.id = '_bm_local_btn';
+  l.type = 'button';
+  l.textContent = 'Local';
+  l.style.cssText = 'border:0;background:transparent;color:#e2e8f0;font-size:12px;font-weight:600;padding:6px 10px;border-radius:6px;cursor:pointer;';
+  r.addEventListener('click', function() { showBasemap('remote'); });
+  l.addEventListener('click', function() { showBasemap('local'); });
+  c.appendChild(r); c.appendChild(l);
+  document.getElementById('map').appendChild(c);
+  updateBasemapUI();
+})();
+`}
+
 </script>
 </body>
 </html>`;
