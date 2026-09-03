@@ -1,0 +1,10 @@
+Enable text formatting in custom pop-up labels (ex. bolding, underlining, etc)
+Default point symbology black outline, random colour, no transparency
+When you hide a layer, it's respective legend item should also by dynamically hidden
+
+Put the data note somewhere else. Implement option for info button on the right side of the screen which will expand a side panel of the data note
+In this option the title should still be visible on the left side of the screen on top of the legend items
+
+Implement a series of template symbology items
+Right now there are just circles, cross hair, square, diamond etc. But I need a folder of symbols like disability symbol, hospital, building, etc.
+Find a symbology pack online with freedom of use licensing and use it.
