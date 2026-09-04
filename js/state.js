@@ -1,5 +1,8 @@
 let layerStore = [];
 let layerCounter = 0;
+let tableStore = [];
+let tableCounter = 0;
+let directoryConfig = null;
 let projectTitle = '';
 let dataNote = '';
 

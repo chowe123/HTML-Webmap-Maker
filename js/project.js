@@ -17,6 +17,9 @@ function handleFile(e) {
   const name = file.name.toLowerCase();
   const isZip = name.endsWith('.zip');
   const isTif = name.endsWith('.tif') || name.endsWith('.tiff');
+  const isTable = name.endsWith('.csv') || name.endsWith('.xlsx') || name.endsWith('.xls');
+
+  if (isTable) { handleTableFile(file); return; }
 
   if (isTif) {
     const reader = new FileReader();
@@ -79,6 +82,8 @@ function getProjectSnapshot() {
     version: PROJECT_VERSION, title: projectTitle, dataNote, basemap: currentBasemap, searchMode,
     mapView: { lat: center.lat, lng: center.lng, zoom: map.getZoom() },
     layerCounter, layers: layerStore.map(getLayerExportPayload),
+    tableCounter, tables: tableStore.map(getTablePayload),
+    directoryConfig: directoryConfig || null,
     rasterLayers: rasterStore.map(function(r) {
       return { id: r.id, name: r.name, dataUrl: r.dataUrl, bounds: r.bounds, visible: r.visible, opacity: r.opacity };
     })
@@ -88,6 +93,8 @@ function getProjectSnapshot() {
 function clearAllLayers() {
   layerStore.forEach(layer => { if (layer.leafletLayer) map.removeLayer(layer.leafletLayer); });
   layerStore = [];
+  tableStore = [];
+  tableCounter = 0;
   if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
   clearAllRasterLayers();
   localMBFilename = '';
@@ -99,6 +106,11 @@ function loadProjectSnapshot(snapshot) {
   clearAllLayers();
   localMBFilename = '';
   layerCounter = snapshot.layerCounter || 0;
+  (snapshot.tables || []).forEach(function(td) {
+    if (td && Array.isArray(td.columns) && Array.isArray(td.rows)) addTable(td.name || 'table', td.columns, td.rows, td.id);
+  });
+  directoryConfig = (snapshot.directoryConfig && typeof snapshot.directoryConfig === 'object') ? snapshot.directoryConfig : null;
+  if (typeof syncDirectoryStatus === 'function') syncDirectoryStatus();
   projectTitle = snapshot.title || '';
   dataNote = snapshot.dataNote || '';
   applyProjectMetaToUI();
@@ -236,7 +248,7 @@ function exportHTML() {
     mbtilesDataUrl: mbtilesDataUrl,
     mapView: { lat: center.lat, lng: center.lng, zoom: map.getZoom() },
     layers: layerStore.map(l => ({
-      name: l.name, geojson: l.geojson, color: l.color, strokeColor: l.strokeColor || l.color,
+      id: l.id, name: l.name, geojson: l.geojson, color: l.color, strokeColor: l.strokeColor || l.color,
     weight: l.weight, opacity: l.opacity ?? 0.4,
       pointSymbolType: l.pointSymbolType || 'circle', pointSize: l.pointSize ?? 10,
       pointStrokeColor: l.pointStrokeColor || null, pointStrokeWidth: l.pointStrokeWidth ?? 2,
@@ -257,6 +269,13 @@ function exportHTML() {
       return { name: r.name, dataUrl: r.dataUrl, bounds: r.bounds, visible: r.visible, opacity: r.opacity };
     })
   };
+  if (directoryConfig && directoryConfig.enabled) {
+    exportData.directoryConfig = directoryConfig;
+    if (directoryConfig.mode === 'table' && directoryConfig.tableId) {
+      var dt = tableStore.find(function(t) { return t.id === directoryConfig.tableId; });
+      if (dt) exportData.directoryTable = getTablePayload(dt);
+    }
+  }
 
   const html = generateHTML(exportData);
   const blob = new Blob([html], { type: "text/html" });

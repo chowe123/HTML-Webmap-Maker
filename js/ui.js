@@ -698,4 +698,6 @@ function renderUI() {
     rg.innerHTML = '<div class="legend-item" style="font-size:12px;">🖼 ' + escapeHtml(r.name) + '</div>';
     legendDiv.appendChild(rg);
   });
+
+  if (typeof renderTables === 'function') renderTables();
 }

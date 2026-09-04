@@ -175,6 +175,7 @@ dropZone.addEventListener('drop', (e) => {
 });
 
 document.getElementById("exportBtn").addEventListener("click", exportHTML);
+document.getElementById("directoryBtn").addEventListener("click", openDirectorySettings);
 document.getElementById("saveProjectBtn").addEventListener("click", saveProject);
 document.getElementById("loadProjectBtn").addEventListener("click", () => { document.getElementById("projectInput").click(); });
 document.getElementById("projectInput").addEventListener("change", handleProjectFile);

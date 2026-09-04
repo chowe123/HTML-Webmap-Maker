@@ -1852,9 +1852,9 @@
         <div style="margin-bottom:12px;">
           <div class="btn-upload-trigger" onclick="document.getElementById('fileInput').click()">
             <span style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Add Data</span>
-            <span style="font-size:11px; color:var(--text-muted);">Choose .geojson, .json, .zip shapefile, or .tif/.tiff raster</span>
+            <span style="font-size:11px; color:var(--text-muted);">Choose .geojson, .json, .zip shapefile, .tif/.tiff raster, or .csv/.xlsx table</span>
           </div>
-          <input type="file" id="fileInput" accept=".geojson,.json,.zip,.tif,.tiff" />
+          <input type="file" id="fileInput" accept=".geojson,.json,.zip,.tif,.tiff,.csv,.xlsx,.xls" />
           <input type="file" id="mbtilesFileInput" accept=".mbtiles" style="display:none;" />
         </div>
         <div style="margin-bottom:12px;">
@@ -1866,6 +1866,12 @@
           <span style="font-size:11px; color:var(--text-muted);">Save layers, styling, and map view to reopen later (.gisproject)</span>
         </div>
         <button class="btn-primary" id="exportBtn">Download Interactive HTML Map</button>
+        <div style="margin-top:10px;">
+          <div class="btn-row" style="margin-bottom:4px;">
+            <button class="btn-secondary" id="directoryBtn" type="button">Directory Panel…</button>
+          </div>
+          <span id="dirConfigStatus" style="font-size:11px; color:var(--text-muted);">Directory panel: off</span>
+        </div>
       </div>
     </div>
 
@@ -1877,6 +1883,11 @@
     <div class="card">
       <div class="card-title">Layers</div>
       <div id="layers" class="layers-stack"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Tables</div>
+      <div id="tables" class="layers-stack"></div>
     </div>
 
   </div>
@@ -1941,6 +1952,7 @@
 <script src="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js"></script>
 <script src="https://unpkg.com/shpjs/dist/shp.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist/geotiff.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
 <script src="js/config.js"></script>
@@ -1952,6 +1964,8 @@
 <script src="js/layer.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/attribute-table.js"></script>
+<script src="js/tables.js"></script>
+<script src="js/join.js"></script>
 <script src="js/dialogs.js"></script>
 <script src="js/search-control.js"></script>
 <script src="js/project.js"></script>

@@ -20,6 +20,134 @@ function generateHTML(data) {
     Object.keys(l.categorySymbols || {}).forEach(function(k) { var cs = l.categorySymbols[k]; if (cs) collectMaki(cs.pointSymbolType); });
   });
   data.maki = usedMaki;
+  function prettifyDirLabel(key) {
+    var s = String(key == null ? '' : key).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!s) return 'Detail';
+    return s.replace(/\w\S*/g, function(w) { return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(); });
+  }
+  function dirLabelFor(cfg, key) {
+    if (cfg && cfg.detailLabels && cfg.detailLabels[key]) return cfg.detailLabels[key];
+    return prettifyDirLabel(key);
+  }
+  function mergeDirPerson(byName, person) {
+    if (!person || !person.name) return;
+    var ex = byName[person.name];
+    if (!ex) { byName[person.name] = person; return; }
+    (person.wards || []).forEach(function(w) { if (ex.wards.indexOf(w) === -1) ex.wards.push(w); });
+  }
+  function sortDirPeople(byName) {
+    return Object.keys(byName).sort(function(a, b) {
+      return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+    }).map(function(k) { return byName[k]; });
+  }
+  function buildDirFromRecords(cfg, layers) {
+    var byName = {};
+    var src = (layers || []).filter(function(l) { return !cfg.sourceLayerId || l.id === cfg.sourceLayerId; });
+    if (cfg.sourceLayerId && !src.length) return null;
+    var found = false;
+    src.forEach(function(l) {
+      ((l.geojson && l.geojson.features) || []).forEach(function(f) {
+        var p = (f && f.properties) || {};
+        var raw = p[cfg.recordField];
+        if (!raw) return;
+        var arr;
+        try { arr = JSON.parse(raw); } catch (e) { return; }
+        if (!Array.isArray(arr)) return;
+        found = true;
+        arr.forEach(function(person) {
+          if (!person || !person.name) return;
+          var details = [];
+          Object.keys(person).forEach(function(k) {
+            if (k === 'name' || k === 'role' || k === 'municipality' || k === 'wards') return;
+            var v = person[k];
+            if (v === null || v === undefined || String(v).trim() === '') return;
+            details.push([dirLabelFor(cfg, k), String(v)]);
+          });
+          mergeDirPerson(byName, {
+            name: String(person.name),
+            role: person.role ? String(person.role) : '',
+            municipality: person.municipality ? String(person.municipality) : '',
+            wards: (person.wards || []).map(function(w) { return String(w); }),
+            details: details
+          });
+        });
+      });
+    });
+    if (!found) return null;
+    return sortDirPeople(byName);
+  }
+  function buildDirFromTable(cfg, table) {
+    if (!table || !cfg.nameCol) return null;
+    var ci = {};
+    table.columns.forEach(function(c, i) { if (!(c in ci)) ci[c] = i; });
+    function col(name) { return name && (name in ci) ? ci[name] : -1; }
+    var ni = col(cfg.nameCol), ri = col(cfg.roleCol), gi = col(cfg.groupCol), wi = col(cfg.wardsCol);
+    if (ni < 0 || wi < 0) return null;
+    var split = cfg.wardsSplit || '';
+    var detailCols = (cfg.detailCols && cfg.detailCols.length ? cfg.detailCols : table.columns.slice())
+      .filter(function(c) { return (c in ci) && c !== cfg.nameCol && c !== cfg.roleCol && c !== cfg.groupCol && c !== cfg.wardsCol; });
+    var byName = {};
+    (table.rows || []).forEach(function(r) {
+      var name = String(r[ni] || '').trim();
+      if (!name) return;
+      var wards = [];
+      var parts = split ? String(r[wi] || '').split(split) : [r[wi]];
+      parts.forEach(function(p) {
+        p = String(p == null ? '' : p).trim();
+        if (p && wards.indexOf(p) === -1) wards.push(p);
+      });
+      var details = [];
+      detailCols.forEach(function(c) {
+        var v = String(r[ci[c]] == null ? '' : r[ci[c]]).trim();
+        if (!v) return;
+        details.push([dirLabelFor(cfg, c), v]);
+      });
+      mergeDirPerson(byName, {
+        name: name,
+        role: ri >= 0 ? String(r[ri] || '').trim() : '',
+        municipality: gi >= 0 ? String(r[gi] || '').trim() : '',
+        wards: wards,
+        details: details
+      });
+    });
+    return sortDirPeople(byName);
+  }
+  function buildDirectory(data) {
+    var dc = data.directoryConfig;
+    if (dc && dc.enabled) {
+      var people = null;
+      if (dc.mode === 'table') people = buildDirFromTable(dc, data.directoryTable);
+      else people = buildDirFromRecords(dc, data.layers);
+      if (!people || !people.length) return null;
+      return {
+        cfg: { title: dc.title || 'Directory', zoomLayerId: dc.zoomLayerId || null,
+               zoomKeyField: dc.zoomKeyField || 'WardLabel', subtitleStyle: dc.subtitleStyle || 'auto',
+               areaWord: dc.areaWord || 'areas' },
+        people: people
+      };
+    }
+    // Legacy fallback: ward-map style records found by convention.
+    var legacy = buildDirFromRecords(
+      { recordField: 'CouncillorDirectoryJSON',
+        detailLabels: { services: 'Peel services and programs', initiatives: 'Key health initiatives',
+                        priorities: 'Top priorities', committees: 'Key committees' } },
+      data.layers);
+    if (!legacy || !legacy.length) return null;
+    return {
+      cfg: { title: 'Councillor Directory', zoomLayerId: null, zoomKeyField: 'WardLabel', subtitleStyle: 'mayor', areaWord: 'wards' },
+      people: legacy
+    };
+  }
+  const directory = buildDirectory(data);
+  const directoryPeople = directory ? directory.people : [];
+  const directoryCfg = directory ? directory.cfg : null;
+  const directoryPanelHtml = directory
+    ? `<button id="dirBtn" title="${escapeHtml(directory.cfg.title)}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></button>
+       <div id="dirPanel" class="hidden">
+         <div class="info-panel-header"><span>${escapeHtml(directory.cfg.title)}</span><button id="dirClose" title="Close">&times;</button></div>
+         <div id="dirPanelBody"><input id="dirSearch" type="text" placeholder="Search\u2026" autocomplete="off" /><div id="dirFilterBanner"><span id="dirFilterText"></span><button id="dirFilterClear" type="button" title="Clear selection">&times;</button></div><div id="dirList"></div></div>
+       </div>`
+    : '';
 
 return `<!DOCTYPE html>
 <html lang="en">
@@ -145,6 +273,19 @@ return `<!DOCTYPE html>
   .map-mode-toggle { display:inline-flex; align-items:center; justify-content:center; background:transparent; border:none; border-left:1px solid var(--border-color); color:var(--text-muted); padding:6px 8px; cursor:pointer; flex-shrink:0; opacity:0.6; }
   .map-mode-toggle:hover { opacity:1; color:var(--accent); }
   .map-pin-hint { padding:10px; font-size:11px; color:var(--text-secondary); line-height:1.4; }
+  #dirSearch { margin-bottom: 4px; }
+  #dirList { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .dir-item { background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px 12px; }
+  .dir-head { cursor: pointer; }
+  .dir-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .dir-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .dir-detail { display: none; margin-top: 8px; border-top: 1px solid var(--border-color); padding-top: 8px; }
+  .dir-item.open .dir-detail { display: block; }
+  .dir-sec { font-size: 12px; color: var(--text-primary); line-height: 1.5; margin-bottom: 6px; word-break: break-word; }
+  .dir-sec-label { display: block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); margin-bottom: 2px; }
+  .dir-zoom { margin-top: 4px; padding: 6px 10px; font-size: 12px; font-weight: 600; color: #fff; background: var(--accent); border: none; border-radius: 6px; cursor: pointer; }
+  .dir-zoom:hover { filter: brightness(1.15); }
+  .dir-empty { font-size: 12px; color: var(--text-muted); padding: 6px 2px; }
   #map { flex: 1; height: 100vh; background-color: #0b0f19 !important; position: relative; }
   .leaflet-popup-content-wrapper { background: rgba(15,23,42,0.95) !important; color:#fff !important; border:1px solid var(--border-color); }
   .gis-point-symbol-icon, .gis-custom-point-icon { background: transparent !important; border: none !important; }
@@ -183,6 +324,31 @@ return `<!DOCTYPE html>
   #infoPanelBody {
     flex: 1; overflow-y: auto; padding: 16px; font-size: 12px; line-height: 1.6; color: #94a3b8; word-break: break-word;
   }
+  #dirBtn {
+    position: absolute; top: 120px; right: 10px; z-index: 1000;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #0f172a; border: 1px solid rgba(255,255,255,0.08);
+    color: #f8fafc; cursor: pointer; box-shadow: var(--shadow-lg);
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  #dirBtn:hover { border-color: var(--accent); color: #93c5fd; }
+  #dirPanel {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 330px; max-width: 85%; z-index: 999;
+    background: rgba(15,23,42,0.97); border-left: 1px solid rgba(255,255,255,0.08);
+    box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
+    transform: translateX(0); transition: transform 0.25s ease;
+    font-family: 'Inter', sans-serif;
+  }
+  #dirPanel.hidden { transform: translateX(105%); }
+  #dirClose {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #64748b;
+    width: 26px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1; flex-shrink: 0;
+  }
+  #dirClose:hover { color: #f8fafc; background: rgba(255,255,255,0.1); }
+  #dirPanelBody { flex: 1; overflow-y: auto; padding: 16px; }
+  #dirFilterBanner { display: none; align-items: center; justify-content: space-between; gap: 8px; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.4); border-radius: 8px; padding: 6px 10px; margin: 8px 0; font-size: 12px; color: #bfdbfe; }
+  #dirFilterClear { background: transparent; border: none; color: #bfdbfe; font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+  #dirFilterClear:hover { color: #ffffff; }
 </style>
 </head>
 <body>
@@ -203,7 +369,7 @@ return `<!DOCTYPE html>
   </div>
 </div>
 
-<div id="map">${infoPanelHtml}
+<div id="map">${infoPanelHtml}${directoryPanelHtml}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
@@ -708,7 +874,8 @@ if (exportedData.rasterLayers) {
 }
 
 var selectedFeatures = {};
-map.on('click', function() { clearExportedSelection(); });
+var directoryWardFilterHandler = null;
+map.on('click', function() { clearExportedSelection(); if (directoryWardFilterHandler) directoryWardFilterHandler(); });
 function clearExportedSelection() {
   var changed = {};
   Object.keys(selectedFeatures).forEach(function(n) { if (selectedFeatures[n] && selectedFeatures[n].size) changed[n] = true; });
@@ -744,6 +911,7 @@ function deselectExportedFeature(l, feature) {
   set.delete(idx);
   var wrapper = layers.find(function(x) { return x.name === l.name; });
   updateExportedLayerStyles(wrapper);
+  if (directoryWardFilterHandler) directoryWardFilterHandler();
 }
 function updateExportedLayerStyles(l) {
   if (!l || !l.layer) return;
@@ -766,6 +934,7 @@ exportedData.layers.forEach(l => {
         toggleExportedSelection(l, f);
         var wrapper = layers.find(function(x) { return x.name === l.name; });
         updateExportedLayerStyles(wrapper);
+        if (directoryWardFilterHandler) directoryWardFilterHandler();
       });
       leafletLayer.on('popupclose', function() {
         deselectExportedFeature(l, f);
@@ -924,7 +1093,7 @@ new MapSearchControl().addTo(map);
   var panel = document.getElementById('infoPanel');
   if (!btn || !panel) return;
   if (window.L && L.DomEvent) { L.DomEvent.disableClickPropagation(btn); L.DomEvent.disableClickPropagation(panel); L.DomEvent.disableScrollPropagation(panel); }
-  btn.addEventListener('click', function(e) { if (e) e.stopPropagation(); panel.classList.toggle('hidden'); });
+  btn.addEventListener('click', function(e) { if (e) e.stopPropagation(); var dp = document.getElementById('dirPanel'); if (dp) dp.classList.add('hidden'); panel.classList.toggle('hidden'); });
   var close = document.getElementById('infoClose');
   if (close) close.addEventListener('click', function() { panel.classList.add('hidden'); });
 })();
@@ -951,6 +1120,166 @@ ${currentBasemap === 'none' || currentBasemap === 'local' ? '' : `
   updateBasemapUI();
 })();
 `}
+(function() {
+  var dbtn = document.getElementById('dirBtn');
+  var dpanel = document.getElementById('dirPanel');
+  if (dbtn && dpanel) {
+    if (window.L && L.DomEvent) { L.DomEvent.disableClickPropagation(dbtn); L.DomEvent.disableClickPropagation(dpanel); L.DomEvent.disableScrollPropagation(dpanel); }
+    dbtn.addEventListener('click', function(e) {
+      if (e) e.stopPropagation();
+      var ip = document.getElementById('infoPanel');
+      if (ip) ip.classList.add('hidden');
+      dpanel.classList.toggle('hidden');
+    });
+    var dclose = document.getElementById('dirClose');
+    if (dclose) dclose.addEventListener('click', function() { dpanel.classList.add('hidden'); });
+  }
+  var dir = ${JSON.stringify(directoryPeople).replace(/<\//g, '<\\/')};
+  var dirCfg = ${JSON.stringify(directoryCfg)};
+  var listEl = document.getElementById('dirList');
+  var searchEl = document.getElementById('dirSearch');
+  if (!listEl || !dir || !dir.length || !dirCfg) return;
+  var dirKeyField = dirCfg.zoomKeyField || 'WardLabel';
+  function dirKeyOf(feature) {
+    var v = feature && feature.properties && feature.properties[dirKeyField];
+    return (v === null || v === undefined || v === '') ? null : String(v);
+  }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function nl2br(s) { return esc(s).replace(/\\n/g, '<br/>'); }
+  function wardWrapper() {
+    if (dirCfg.zoomLayerId) {
+      var byId = layers.find(function(x) { return x.id === dirCfg.zoomLayerId; });
+      if (byId) return byId;
+    }
+    for (var i = 0; i < layers.length; i++) {
+      var feats = (layers[i].geojson && layers[i].geojson.features) || [];
+      for (var j = 0; j < feats.length; j++) {
+        if (dirKeyOf(feats[j])) return layers[i];
+      }
+    }
+    return null;
+  }
+  var wardLayer = wardWrapper();
+  var wardFilterLabels = null;
+  function personVisible(person) {
+    if (!wardFilterLabels) return true;
+    var wards = person.wards || [];
+    for (var i = 0; i < wards.length; i++) if (wardFilterLabels.indexOf(wards[i]) !== -1) return true;
+    return false;
+  }
+  function updateFilterBanner() {
+    var banner = document.getElementById('dirFilterBanner');
+    if (!banner) return;
+    if (wardFilterLabels && wardFilterLabels.length) {
+      banner.style.display = 'flex';
+      var t = document.getElementById('dirFilterText');
+      if (t) t.textContent = 'Showing: ' + wardFilterLabels.join(', ');
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+  function syncFilterFromSelection() {
+    var labels = [];
+    if (wardLayer) {
+      var sel = selectedFeatures[wardLayer.name];
+      var feats = (wardLayer.geojson && wardLayer.geojson.features) || [];
+      if (sel) sel.forEach(function(idx) {
+        var wl = dirKeyOf(feats[idx]);
+        if (wl && labels.indexOf(wl) === -1) labels.push(wl);
+      });
+    }
+    wardFilterLabels = labels.length ? labels : null;
+    render(searchEl ? searchEl.value : '');
+    updateFilterBanner();
+    if (wardFilterLabels && dpanel && dpanel.classList.contains('hidden')) {
+      var ip = document.getElementById('infoPanel');
+      if (ip) ip.classList.add('hidden');
+      dpanel.classList.remove('hidden');
+    }
+  }
+  directoryWardFilterHandler = syncFilterFromSelection;
+  function selectPersonWards(person) {
+    if (!wardLayer) return;
+    if (!map.hasLayer(wardLayer.layer)) { wardLayer.layer.addTo(map); renderUI(); }
+    clearExportedSelection();
+    var feats = (wardLayer.geojson && wardLayer.geojson.features) || [];
+    var sel = new Set();
+    feats.forEach(function(ft, idx) {
+      var wl = dirKeyOf(ft);
+      if (wl && (person.wards || []).indexOf(wl) !== -1) sel.add(idx);
+    });
+    selectedFeatures[wardLayer.name] = sel;
+    updateExportedLayerStyles(wardLayer);
+    var bounds = null, first = null;
+    wardLayer.layer.eachLayer(function(ll) {
+      var wl = dirKeyOf(ll.feature);
+      if (wl && (person.wards || []).indexOf(wl) !== -1) {
+        if (!first) first = ll;
+        var b = ll.getBounds();
+        bounds = bounds ? bounds.extend(b) : L.latLngBounds(b);
+      }
+    });
+    if (bounds) map.fitBounds(bounds.pad(0.15));
+    if (first) setTimeout(function() { first.openPopup(); }, 350);
+    if (searchEl) searchEl.value = '';
+    syncFilterFromSelection();
+  }
+  function section(label, val) {
+    if (!val) return '';
+    return '<div class="dir-sec"><span class="dir-sec-label">' + esc(label) + '</span>' + nl2br(val) + '</div>';
+  }
+  function dirSubtitle(person) {
+    var wards = (person.wards || []).join(', ');
+    if (dirCfg.subtitleStyle === 'mayor') {
+      if (person.role === 'Mayor') return 'Mayor of ' + person.municipality;
+      return person.municipality + ' - ' + wards;
+    }
+    return [person.role, person.municipality, wards].filter(function(s) { return s; }).join(' · ');
+  }
+  function render(filter) {
+    listEl.innerHTML = '';
+    var q = (filter || '').toLowerCase();
+    var shown = 0;
+    dir.forEach(function(person) {
+      if (!personVisible(person)) return;
+      var hay = (person.name + ' ' + person.role + ' ' + person.municipality + ' ' + (person.wards || []).join(' ')).toLowerCase();
+      if (q && hay.indexOf(q) === -1) return;
+      shown++;
+      var item = document.createElement('div');
+      item.className = 'dir-item';
+      var sub = dirSubtitle(person);
+      var detailHtml = '';
+      (person.details || []).forEach(function(pair) {
+        detailHtml += section(pair[0], pair[1]);
+      });
+      item.innerHTML = '<div class="dir-head"><div class="dir-name">' + esc(person.name) + '</div>' +
+        '<div class="dir-sub">' + esc(sub) + '</div></div>' +
+        '<div class="dir-detail">' + detailHtml +
+        '<button type="button" class="dir-zoom">Show ' + esc(dirCfg.areaWord || 'areas') + ' on map</button></div>';
+      item.querySelector('.dir-head').addEventListener('click', function() { item.classList.toggle('open'); });
+      var zb = item.querySelector('.dir-zoom');
+      zb.addEventListener('click', function(e) { if (e) e.stopPropagation(); selectPersonWards(person); });
+      listEl.appendChild(item);
+    });
+    if (!shown) {
+      var d = document.createElement('div');
+      d.className = 'dir-empty';
+      d.textContent = 'No matches.';
+      listEl.appendChild(d);
+    }
+  }
+  if (searchEl) searchEl.addEventListener('input', function() { render(searchEl.value); });
+  var bannerClear = document.getElementById('dirFilterClear');
+  if (bannerClear) bannerClear.addEventListener('click', function() {
+    clearExportedSelection();
+    if (wardLayer) updateExportedLayerStyles(wardLayer);
+    map.closePopup();
+    if (searchEl) searchEl.value = '';
+    syncFilterFromSelection();
+  });
+  render('');
+  updateFilterBanner();
+})();
 
 </script>
 </body>

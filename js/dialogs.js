@@ -31,6 +31,7 @@ function showLayerContextMenu(e, layer) {
     { action: 'attr-table', icon: '⊞', label: 'Attribute Table', handler: function() { populateAttrTable(layer); } },
     { separator: true },
     { action: 'filter-data', icon: '🔍', label: 'Filter Data', handler: function() { openFilterEditor(layer); } },
+    { action: 'join-table', icon: '⛓', label: 'Join Table…', handler: function() { openJoinEditor(layer); } },
     { action: 'select-by-attr', icon: '☐', label: 'Select by Attribute', handler: function() { openSelectByAttribute(layer); } },
     { action: 'popup-settings', icon: '💬', label: 'Popup Settings', handler: function() { openPopupSettings(layer); } },
     { action: 'label-settings', icon: 'Aa', label: 'Label Settings', handler: function() { openLabelEditor(layer); } },
@@ -900,4 +901,184 @@ function openLayerSymbolEditor(layer) {
   document.body.appendChild(overlay);
   updatePreview();
   updateCustomRow();
+}
+
+// =========================
+// DIRECTORY PANEL SETTINGS
+// =========================
+// Project-level config for the exported map's slide-in directory panel.
+// Two people-source modes:
+//   records: a layer field holding a JSON array of {name, role, municipality,
+//            wards[], ...detailKeys} per feature (ward-map style).
+//   table:   one table row per person, with a multi-value wards column.
+
+function closeDirectorySettings() {
+  var overlay = document.getElementById('dir-settings-overlay');
+  if (overlay) overlay.remove();
+}
+
+function syncDirectoryStatus() {
+  var el = document.getElementById('dirConfigStatus');
+  if (!el) return;
+  if (directoryConfig && directoryConfig.enabled) {
+    el.textContent = 'Directory panel: on (' + (directoryConfig.title || 'Directory') + ')';
+    el.style.color = 'var(--accent)';
+  } else {
+    el.textContent = 'Directory panel: off';
+    el.style.color = 'var(--text-muted)';
+  }
+}
+
+function openDirectorySettings() {
+  closeDirectorySettings();
+  var cfg = directoryConfig || {};
+  var overlay = document.createElement('div');
+  overlay.id = 'dir-settings-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;';
+
+  var sel = 'width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border-color);border-radius:var(--radius-md);color:var(--text-primary);font-size:12px;font-family:inherit;outline:none;';
+  var lab = 'display:block;font-size:11px;font-weight:500;color:var(--text-secondary);margin-bottom:4px;';
+  var row = 'margin-bottom:12px;';
+  var mode = cfg.mode || 'records';
+
+  var layerOpts = layerStore.map(function(l) {
+    return '<option value="' + escapeHtml(l.id) + '"' + (cfg.sourceLayerId === l.id || cfg.zoomLayerId === l.id ? ' selected' : '') + '>' + escapeHtml(l.name) + '</option>';
+  }).join('') || '<option value="">(no layers)</option>';
+  var tableOpts = tableStore.map(function(t, i) {
+    return '<option value="' + escapeHtml(t.id) + '"' + (cfg.tableId === t.id ? ' selected' : '') + (i === 0 && !cfg.tableId ? ' selected' : '') + '>' + escapeHtml(t.name) + ' (' + t.rows.length + ' rows)</option>';
+  }).join('') || '<option value="">(no tables — import CSV/Excel first)</option>';
+
+  function fieldOptsFor(layerId, current) {
+    var l = layerStore.find(function(x) { return x.id === layerId; });
+    return ((l && l.fields) || []).map(function(f) {
+      return '<option value="' + escapeHtml(f) + '"' + (current === f ? ' selected' : '') + '>' + escapeHtml(f) + '</option>';
+    }).join('');
+  }
+  function colOptsFor(tableId, current, allowEmpty) {
+    var t = tableStore.find(function(x) { return x.id === tableId; });
+    var opts = allowEmpty ? '<option value="">(none)</option>' : '';
+    opts += ((t && t.columns) || []).map(function(c) {
+      return '<option value="' + escapeHtml(c) + '"' + (current === c ? ' selected' : '') + '>' + escapeHtml(c) + '</option>';
+    }).join('');
+    return opts;
+  }
+
+  overlay.innerHTML = [
+    '<div style="background:var(--bg-sidebar);border:1px solid var(--border-color);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:540px;max-width:94vw;max-height:88vh;display:flex;flex-direction:column;">',
+      '<div style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);flex-shrink:0;">',
+        '<h3 style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1;">Directory Panel (exported map)</h3>',
+        '<button class="ds-close" style="background:rgba(255,255,255,0.04);border:1px solid var(--border-color);color:var(--text-muted);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;">&times;</button>',
+      '</div>',
+      '<div style="padding:16px 20px;overflow-y:auto;">',
+        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:12px;"><input type="checkbox" class="ds-enabled" ' + (cfg.enabled ? 'checked' : '') + ' style="accent-color:var(--accent);" /> Show directory panel in exported map</label>',
+        '<div style="' + row + '"><label style="' + lab + '">Panel title</label><input type="text" class="ds-title" value="' + escapeHtml(cfg.title || 'Directory') + '" style="' + sel + 'box-sizing:border-box;" /></div>',
+        '<div style="display:flex;gap:0;margin-bottom:14px;border:1px solid var(--border-color);border-radius:var(--radius-md);overflow:hidden;">',
+          '<button type="button" class="ds-mode-btn" data-mode="records" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border:none;cursor:pointer;">People records in a layer field</button>',
+          '<button type="button" class="ds-mode-btn" data-mode="table" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border:none;cursor:pointer;">Table (one row per person)</button>',
+        '</div>',
+        '<div class="ds-records" style="display:' + (mode === 'records' ? 'block' : 'none') + ';">',
+          '<div style="' + row + '"><label style="' + lab + '">Source layer (features carry a JSON array of people)</label><select class="ds-src-layer" style="' + sel + '">' + layerOpts + '</select></div>',
+          '<div style="' + row + '"><label style="' + lab + '">Record field (JSON array per feature)</label><select class="ds-rec-field" style="' + sel + '"></select></div>',
+          '<div style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:12px;">Each record: <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;">{name, role, municipality, wards[], ...details}</code>. Extra keys become profile sections.</div>',
+        '</div>',
+        '<div class="ds-table" style="display:' + (mode === 'table' ? 'block' : 'none') + ';">',
+          '<div style="' + row + '"><label style="' + lab + '">Source table</label><select class="ds-table-sel" style="' + sel + '">' + tableOpts + '</select></div>',
+          '<div style="display:flex;gap:10px;">',
+            '<div style="flex:1;' + row + '"><label style="' + lab + '">Name column</label><select class="ds-name-col" style="' + sel + '"></select></div>',
+            '<div style="flex:1;' + row + '"><label style="' + lab + '">Role column (optional)</label><select class="ds-role-col" style="' + sel + '"></select></div>',
+          '</div>',
+          '<div style="display:flex;gap:10px;">',
+            '<div style="flex:1;' + row + '"><label style="' + lab + '">Group column (optional)</label><select class="ds-group-col" style="' + sel + '"></select></div>',
+            '<div style="flex:1;' + row + '"><label style="' + lab + '">Areas column (multi-value)</label><select class="ds-wards-col" style="' + sel + '"></select></div>',
+          '</div>',
+          '<div style="display:flex;gap:10px;">',
+            '<div style="flex:1;' + row + '"><label style="' + lab + '">Areas split on</label><input type="text" class="ds-split" value="' + escapeHtml(cfg.wardsSplit !== undefined ? cfg.wardsSplit : '/') + '" placeholder="e.g. /" style="' + sel + 'box-sizing:border-box;" /></div>',
+          '</div>',
+          '<div style="' + row + '"><label style="' + lab + '">Profile detail columns</label><div class="ds-details" style="display:flex;flex-wrap:wrap;gap:6px;"></div></div>',
+        '</div>',
+        '<div style="' + row + '"><label style="' + lab + '">Zoom-to layer (polygons to highlight)</label><select class="ds-zoom-layer" style="' + sel + '">' + layerOpts + '</select></div>',
+        '<div style="' + row + '"><label style="' + lab + '">Zoom key field (matches person areas)</label><select class="ds-zoom-key" style="' + sel + '"></select></div>',
+        '<div style="display:flex;gap:10px;">',
+          '<div style="flex:1;' + row + '"><label style="' + lab + '">Area word (plural)</label><input type="text" class="ds-areaword" value="' + escapeHtml(cfg.areaWord || 'areas') + '" placeholder="e.g. wards, zones, districts" style="' + sel + 'box-sizing:border-box;" /></div>',
+          '<div style="flex:1;' + row + '"><label style="' + lab + '">Subtitle style</label><select class="ds-subtitle" style="' + sel + '"><option value="auto"' + ((cfg.subtitleStyle || 'auto') === 'auto' ? ' selected' : '') + '>Role · Group · Areas</option><option value="mayor"' + (cfg.subtitleStyle === 'mayor' ? ' selected' : '') + '>Mayor of Group / Group – Areas</option></select></div>',
+        '</div>',
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">',
+          '<button type="button" class="ds-save-btn" style="padding:7px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-md);font-size:12px;font-weight:600;cursor:pointer;">Save</button>',
+          '<button type="button" class="ds-cancel-btn" style="padding:7px 20px;background:rgba(255,255,255,0.06);color:var(--text-secondary);border:1px solid var(--border-color);border-radius:var(--radius-md);font-size:12px;cursor:pointer;">Cancel</button>',
+        '</div>',
+      '</div>',
+    '</div>'
+  ].join('');
+
+  function paintModes(m) {
+    overlay.querySelectorAll('.ds-mode-btn').forEach(function(b) {
+      var on = b.dataset.mode === m;
+      b.style.background = on ? 'var(--accent)' : 'transparent';
+      b.style.color = on ? '#fff' : 'var(--text-muted)';
+    });
+    overlay.querySelector('.ds-records').style.display = m === 'records' ? 'block' : 'none';
+    overlay.querySelector('.ds-table').style.display = m === 'table' ? 'block' : 'none';
+  }
+  function refreshRecFields() {
+    overlay.querySelector('.ds-rec-field').innerHTML = fieldOptsFor(
+      overlay.querySelector('.ds-src-layer').value, cfg.recordField || '');
+  }
+  function refreshZoomKeys() {
+    overlay.querySelector('.ds-zoom-key').innerHTML = fieldOptsFor(
+      overlay.querySelector('.ds-zoom-layer').value, cfg.zoomKeyField || '');
+  }
+  function refreshTableCols() {
+    var tid = overlay.querySelector('.ds-table-sel').value;
+    var t = tableStore.find(function(x) { return x.id === tid; });
+    overlay.querySelector('.ds-name-col').innerHTML = colOptsFor(tid, cfg.nameCol, false);
+    overlay.querySelector('.ds-role-col').innerHTML = colOptsFor(tid, cfg.roleCol, true);
+    overlay.querySelector('.ds-group-col').innerHTML = colOptsFor(tid, cfg.groupCol, true);
+    overlay.querySelector('.ds-wards-col').innerHTML = colOptsFor(tid, cfg.wardsCol, false);
+    var picked = cfg.detailCols && cfg.detailCols.length ? cfg.detailCols : (t ? t.columns.slice() : []);
+    overlay.querySelector('.ds-details').innerHTML = ((t && t.columns) || []).map(function(c) {
+      return '<label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary);cursor:pointer;"><input type="checkbox" class="ds-detail" value="' + escapeHtml(c) + '"' + (picked.indexOf(c) !== -1 ? ' checked' : '') + ' style="accent-color:var(--accent);" />' + escapeHtml(c) + '</label>';
+    }).join('');
+  }
+  overlay.querySelectorAll('.ds-mode-btn').forEach(function(b) {
+    b.addEventListener('click', function() { paintModes(b.dataset.mode); });
+  });
+  overlay.querySelector('.ds-src-layer').addEventListener('change', refreshRecFields);
+  overlay.querySelector('.ds-zoom-layer').addEventListener('change', refreshZoomKeys);
+  overlay.querySelector('.ds-table-sel').addEventListener('change', refreshTableCols);
+
+  overlay.querySelector('.ds-close').addEventListener('click', closeDirectorySettings);
+  overlay.querySelector('.ds-cancel-btn').addEventListener('click', closeDirectorySettings);
+  overlay.querySelector('.ds-save-btn').addEventListener('click', function() {
+    var activeMode = 'records';
+    overlay.querySelectorAll('.ds-mode-btn').forEach(function(b) { if (b.style.background === 'var(--accent)') activeMode = b.dataset.mode; });
+    var details = Array.prototype.map.call(overlay.querySelectorAll('.ds-detail:checked'), function(el) { return el.value; });
+    directoryConfig = {
+      enabled: overlay.querySelector('.ds-enabled').checked,
+      title: overlay.querySelector('.ds-title').value.trim() || 'Directory',
+      mode: activeMode,
+      sourceLayerId: overlay.querySelector('.ds-src-layer').value || null,
+      recordField: overlay.querySelector('.ds-rec-field').value || null,
+      tableId: overlay.querySelector('.ds-table-sel').value || null,
+      nameCol: overlay.querySelector('.ds-name-col').value || null,
+      roleCol: overlay.querySelector('.ds-role-col').value || null,
+      groupCol: overlay.querySelector('.ds-group-col').value || null,
+      wardsCol: overlay.querySelector('.ds-wards-col').value || null,
+      wardsSplit: overlay.querySelector('.ds-split').value,
+      detailCols: details,
+      subtitleStyle: overlay.querySelector('.ds-subtitle').value || 'auto',
+      areaWord: overlay.querySelector('.ds-areaword').value.trim() || 'areas',
+      zoomLayerId: overlay.querySelector('.ds-zoom-layer').value || null,
+      zoomKeyField: overlay.querySelector('.ds-zoom-key').value || null,
+      detailLabels: (cfg.detailLabels && typeof cfg.detailLabels === 'object') ? cfg.detailLabels : {}
+    };
+    closeDirectorySettings();
+    syncDirectoryStatus();
+  });
+  overlay.addEventListener('mousedown', function(e) { if (e.target === overlay) closeDirectorySettings(); });
+
+  document.body.appendChild(overlay);
+  paintModes(mode);
+  refreshRecFields();
+  refreshZoomKeys();
+  refreshTableCols();
 }
