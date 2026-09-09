@@ -148,6 +148,12 @@ function generateHTML(data) {
          <div id="dirPanelBody"><input id="dirSearch" type="text" placeholder="Search\u2026" autocomplete="off" /><div id="dirFilterBanner"><span id="dirFilterText"></span><button id="dirFilterClear" type="button" title="Clear selection">&times;</button></div><div id="dirList"></div></div>
        </div>`
     : '';
+  const layersPanelHtml =
+    `<button id="layersBtn" title="Layers"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></button>
+     <div id="layersPanel" class="hidden">
+       <div class="info-panel-header"><span>Layers</span><button id="layersClose" title="Close">&times;</button></div>
+       <div id="layersPanelBody"><div id="layers" style="display:flex; flex-direction:column; gap:8px;"></div></div>
+     </div>`;
 
 return `<!DOCTYPE html>
 <html lang="en">
@@ -346,6 +352,28 @@ return `<!DOCTYPE html>
   }
   #dirClose:hover { color: #f8fafc; background: rgba(255,255,255,0.1); }
   #dirPanelBody { flex: 1; overflow-y: auto; padding: 16px; }
+  #layersBtn {
+    position: absolute; top: ${76 + (infoPanelHtml ? 44 : 0) + (directoryPanelHtml ? 44 : 0)}px; right: 10px; z-index: 1000;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #0f172a; border: 1px solid rgba(255,255,255,0.08);
+    color: #f8fafc; cursor: pointer; box-shadow: var(--shadow-lg);
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  #layersBtn:hover { border-color: var(--accent); color: #93c5fd; }
+  #layersPanel {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 330px; max-width: 85%; z-index: 999;
+    background: rgba(15,23,42,0.97); border-left: 1px solid rgba(255,255,255,0.08);
+    box-shadow: var(--shadow-lg); display: flex; flex-direction: column;
+    transform: translateX(0); transition: transform 0.25s ease;
+    font-family: 'Inter', sans-serif;
+  }
+  #layersPanel.hidden { transform: translateX(105%); }
+  #layersClose {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #64748b;
+    width: 26px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1; flex-shrink: 0;
+  }
+  #layersClose:hover { color: #f8fafc; background: rgba(255,255,255,0.1); }
+  #layersPanelBody { flex: 1; overflow-y: auto; padding: 16px; }
   #dirFilterBanner { display: none; align-items: center; justify-content: space-between; gap: 8px; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.4); border-radius: 8px; padding: 6px 10px; margin: 8px 0; font-size: 12px; color: #bfdbfe; }
   #dirFilterClear { background: transparent; border: none; color: #bfdbfe; font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
   #dirFilterClear:hover { color: #ffffff; }
@@ -362,14 +390,10 @@ return `<!DOCTYPE html>
       <div class="card-title">Legend</div>
       <div id="legend" style="padding-bottom: 16px;"></div>
     </div>
-    <div class="card">
-      <div class="card-title">Layers</div>
-      <div id="layers" style="display:flex; flex-direction:column; gap:8px;"></div>
-    </div>
   </div>
 </div>
 
-<div id="map">${infoPanelHtml}${directoryPanelHtml}
+<div id="map">${infoPanelHtml}${directoryPanelHtml}${layersPanelHtml}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
@@ -1093,9 +1117,25 @@ new MapSearchControl().addTo(map);
   var panel = document.getElementById('infoPanel');
   if (!btn || !panel) return;
   if (window.L && L.DomEvent) { L.DomEvent.disableClickPropagation(btn); L.DomEvent.disableClickPropagation(panel); L.DomEvent.disableScrollPropagation(panel); }
-  btn.addEventListener('click', function(e) { if (e) e.stopPropagation(); var dp = document.getElementById('dirPanel'); if (dp) dp.classList.add('hidden'); panel.classList.toggle('hidden'); });
+  btn.addEventListener('click', function(e) { if (e) e.stopPropagation(); var dp = document.getElementById('dirPanel'); if (dp) dp.classList.add('hidden'); var lp = document.getElementById('layersPanel'); if (lp) lp.classList.add('hidden'); panel.classList.toggle('hidden'); });
   var close = document.getElementById('infoClose');
   if (close) close.addEventListener('click', function() { panel.classList.add('hidden'); });
+})();
+(function() {
+  var lbtn = document.getElementById('layersBtn');
+  var lpanel = document.getElementById('layersPanel');
+  if (!lbtn || !lpanel) return;
+  if (window.L && L.DomEvent) { L.DomEvent.disableClickPropagation(lbtn); L.DomEvent.disableClickPropagation(lpanel); L.DomEvent.disableScrollPropagation(lpanel); }
+  lbtn.addEventListener('click', function(e) {
+    if (e) e.stopPropagation();
+    var ip = document.getElementById('infoPanel');
+    if (ip) ip.classList.add('hidden');
+    var dp = document.getElementById('dirPanel');
+    if (dp) dp.classList.add('hidden');
+    lpanel.classList.toggle('hidden');
+  });
+  var lclose = document.getElementById('layersClose');
+  if (lclose) lclose.addEventListener('click', function() { lpanel.classList.add('hidden'); });
 })();
 ${currentBasemap === 'none' || currentBasemap === 'local' ? '' : `
 (function() {
@@ -1129,6 +1169,8 @@ ${currentBasemap === 'none' || currentBasemap === 'local' ? '' : `
       if (e) e.stopPropagation();
       var ip = document.getElementById('infoPanel');
       if (ip) ip.classList.add('hidden');
+      var lp = document.getElementById('layersPanel');
+      if (lp) lp.classList.add('hidden');
       dpanel.classList.toggle('hidden');
     });
     var dclose = document.getElementById('dirClose');
@@ -1194,6 +1236,8 @@ ${currentBasemap === 'none' || currentBasemap === 'local' ? '' : `
     if (wardFilterLabels && dpanel && dpanel.classList.contains('hidden')) {
       var ip = document.getElementById('infoPanel');
       if (ip) ip.classList.add('hidden');
+      var lp = document.getElementById('layersPanel');
+      if (lp) lp.classList.add('hidden');
       dpanel.classList.remove('hidden');
     }
   }
