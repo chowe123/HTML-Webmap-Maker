@@ -949,7 +949,7 @@ exportedData.layers.forEach(l => {
   };
   if (layerDataHasPoints(l)) { geoOptions.pointToLayer = function(feature, latlng) { return createExportedPointMarker(feature, latlng, l); }; }
   const layer = L.geoJSON(l.geojson, geoOptions);
-  layer.addTo(map);
+  if (l.visible !== false) layer.addTo(map);
   layers.push({ ...l, layer });
 });
 

@@ -249,7 +249,7 @@ function exportHTML() {
     mapView: { lat: center.lat, lng: center.lng, zoom: map.getZoom() },
     layers: layerStore.map(l => ({
       id: l.id, name: l.name, geojson: l.geojson, color: l.color, strokeColor: l.strokeColor || l.color,
-    weight: l.weight, opacity: l.opacity ?? 0.4,
+    weight: l.weight, opacity: l.opacity ?? 0.4, visible: l.visible !== false,
       pointSymbolType: l.pointSymbolType || 'circle', pointSize: l.pointSize ?? 10,
       pointStrokeColor: l.pointStrokeColor || null, pointStrokeWidth: l.pointStrokeWidth ?? 2,
       customSymbolUrl: l.customSymbolUrl || null, popupEnabled: l.popupEnabled !== false,
