@@ -390,7 +390,7 @@ return `<!DOCTYPE html>
 <div id="sidebar">
   <div class="sidebar-header">
     <div class="logo-title">${headerTitle}</div>
-    <div class="logo-subtitle">Developed by HIA</div>
+    <div class="logo-subtitle">Developed by Health Intelligence and Analytics</div>
   </div>
   <div class="sidebar-content">
     <div class="card">
