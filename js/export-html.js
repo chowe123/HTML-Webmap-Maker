@@ -208,9 +208,7 @@ return `<!DOCTYPE html>
     font-family: 'Outfit', sans-serif;
     font-size: 24px;
     font-weight: 700;
-    background: linear-gradient(135deg, #ffffff 40%, #93c5fd);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #ffffff;
     line-height: 1.3;
   }
   .logo-subtitle {
