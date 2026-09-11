@@ -1261,17 +1261,15 @@ ${currentBasemap === 'none' || currentBasemap === 'local' ? '' : `
     });
     selectedFeatures[wardLayer.name] = sel;
     updateExportedLayerStyles(wardLayer);
-    var bounds = null, first = null;
+    var bounds = null;
     wardLayer.layer.eachLayer(function(ll) {
       var wl = dirKeyOf(ll.feature);
       if (wl && (person.wards || []).indexOf(wl) !== -1) {
-        if (!first) first = ll;
         var b = ll.getBounds();
         bounds = bounds ? bounds.extend(b) : L.latLngBounds(b);
       }
     });
     if (bounds) map.fitBounds(bounds.pad(0.15));
-    if (first) setTimeout(function() { first.openPopup(); }, 350);
     if (searchEl) searchEl.value = '';
     syncFilterFromSelection();
   }
