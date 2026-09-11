@@ -206,12 +206,20 @@ return `<!DOCTYPE html>
   }
   .logo-title {
     font-family: 'Outfit', sans-serif;
-    font-size: 19px;
+    font-size: 24px;
     font-weight: 700;
     background: linear-gradient(135deg, #ffffff 40%, #93c5fd);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     line-height: 1.3;
+  }
+  .logo-subtitle {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-top: 4px;
+    letter-spacing: 0.3px;
   }
   .data-note-text {
     font-size: 12px;
@@ -384,6 +392,7 @@ return `<!DOCTYPE html>
 <div id="sidebar">
   <div class="sidebar-header">
     <div class="logo-title">${headerTitle}</div>
+    <div class="logo-subtitle">Developed by HIA</div>
   </div>
   <div class="sidebar-content">
     <div class="card">
