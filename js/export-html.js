@@ -1050,7 +1050,7 @@ renderUI();
 syncMapZIndex();
 
 const MapSearchControl = L.Control.extend({
-  options: { position: 'topright' },
+  options: { position: 'topleft' },
   onAdd: function(map) {
     const c = L.DomUtil.create('div', 'leaflet-bar map-search-control');
     const inner = L.DomUtil.create('div', 'map-search-inner', c);
