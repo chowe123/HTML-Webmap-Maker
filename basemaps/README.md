@@ -1,7 +1,8 @@
 # Peel street basemap
 
-`Peel-StreetMap-z15.mbtiles` — Esri World Street Map clipped to the Region of Peel, zooms 0-15 (70.9 MB).
-Stored as `Peel-StreetMap-z15.mbtiles.part00` … `part04` because of GitHub API upload limits.
+`Peel-StreetMap-z15.mbtiles` — Esri World Street Map clipped to the Region of Peel, zooms 0-15 (41.4 MB, 4,389 tiles).
+Bounds: -80.08, 43.50, -79.53, 43.98.
+Stored as `Peel-StreetMap-z15.mbtiles.part00` … `part02` because of GitHub API upload limits.
 Reassemble with:
 
 ```
